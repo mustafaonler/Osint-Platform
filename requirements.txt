@@ -1,0 +1,35 @@
+# OSINT orkestrasyon platformu — Python 3.12
+# docs/kapsam.md Bölüm 5 (Teknik Kararlar)
+
+# --- Backend --------------------------------------------------------------
+fastapi>=0.115
+uvicorn[standard]>=0.32
+jinja2>=3.1
+python-multipart>=0.0.12
+pydantic-settings>=2.6
+
+# --- Veritabanı -----------------------------------------------------------
+SQLAlchemy>=2.0.36
+psycopg[binary]>=3.2
+alembic>=1.14
+
+# --- Kuyruk ---------------------------------------------------------------
+celery>=5.4
+redis>=5.2
+
+# --- Tool çalıştırma ------------------------------------------------------
+docker>=7.1
+httpx>=0.28
+dnspython>=2.7
+PyYAML>=6.0
+
+# --- Normalizasyon --------------------------------------------------------
+# PSL anlık görüntüsü tldextract paketiyle GÖMÜLÜ gelir; çalışma zamanında ağa
+# çıkılmaz (suffix_list_urls=()). PSL'i güncellemek = bu sürümü yükseltmek.
+tldextract>=5.1
+
+# --- LLM ------------------------------------------------------------------
+google-genai>=1.0
+
+# --- Test -----------------------------------------------------------------
+pytest>=8.3

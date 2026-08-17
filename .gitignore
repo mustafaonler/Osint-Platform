@@ -1,0 +1,25 @@
+# Sırlar — .env ASLA commit edilmez, .env.example commit edilir
+.env
+.env.*
+!.env.example
+
+# Ham çıktı arşivi ve gerçek hedef verisi
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Sanal ortam
+.venv/
+venv/
+
+# Editör / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

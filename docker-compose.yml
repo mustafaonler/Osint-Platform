@@ -1,0 +1,73 @@
+# docs/kapsam.md Bölüm 5 — dağıtım: docker-compose
+#
+# GÜVENLİK: api, db ve redis portları YALNIZCA 127.0.0.1'e bağlanır.
+# 0.0.0.0 KULLANILMAZ — halka açık instance yayınlanmaz (Bölüm 9).
+# Uzaktan erişim VPN/Tailscale ile sağlanır, port açarak değil.
+
+name: osint-platform
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    # --host 127.0.0.1 DEĞİL: container içinde 0.0.0.0'a bağlanmak zorunlu,
+    # dışarıya açılım yalnızca aşağıdaki 127.0.0.1 port eşlemesiyle olur.
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    volumes:
+      - ./data/raw:/data/raw
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    command: celery -A app.worker.celery_app worker --loglevel=info
+    volumes:
+      - ./data/raw:/data/raw
+      # Tool'lar kendi container'larında izole çalışır (İlke 5); worker bunları
+      # ayağa kaldırmak için Docker soketine ihtiyaç duyar.
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
