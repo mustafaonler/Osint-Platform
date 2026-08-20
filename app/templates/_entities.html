@@ -1,0 +1,32 @@
+<h2>İşler</h2>
+<table>
+  <tr><th>Tool</th><th>Hedef</th><th>Durum</th><th>Derinlik</th><th>Süre</th><th>Hata</th></tr>
+  {% for j in isler %}
+  <tr>
+    <td>{{ j.tool }}</td>
+    <td class="kucuk">{{ j.hedef_deger }}</td>
+    <td class="durum {{ j.durum }}">{{ j.durum }}</td>
+    <td>{{ j.derinlik }}</td>
+    <td class="kucuk">{{ (j.sure_ms ~ " ms") if j.sure_ms else "" }}</td>
+    <td class="kucuk">{{ (j.hata_mesaji or "")[:120] }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="6" class="kucuk">henüz iş yok</td></tr>
+  {% endfor %}
+</table>
+
+<h2>Varlıklar ({{ satirlar|length }})</h2>
+<table>
+  <tr><th>Tip</th><th>Değer</th><th>Gözlem</th><th>Kaynak tool</th><th></th></tr>
+  {% for e, tools in satirlar %}
+  <tr>
+    <td>{{ e.tip }}</td>
+    <td>{{ e.deger_ham }}</td>
+    <td>{{ e.gozlem_sayisi }}</td>
+    <td class="kucuk">{{ tools or "—" }}</td>
+    <td class="kucuk"><a href="/entities/{{ e.id }}">kaynağı gör</a></td>
+  </tr>
+  {% else %}
+  <tr><td colspan="5" class="kucuk">henüz varlık yok — iş bitince burası kendiliğinden dolar</td></tr>
+  {% endfor %}
+</table>

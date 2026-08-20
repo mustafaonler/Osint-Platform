@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block baslik %}{{ inv.ad }}{% endblock %}
+{% block icerik %}
+<h1>{{ inv.ad }} <span class="kucuk">({{ inv.kok_hedef }})</span></h1>
+<p class="kucuk">
+  Yetki onayı: <strong>{{ "VAR" if inv.yetki_onayi else "YOK" }}</strong>
+  {% if inv.yetki_notu %} — {{ inv.yetki_notu }}{% endif %}
+  {% if not inv.yetki_onayi %} · P2/A seviyesindeki modüller kapalıdır{% endif %}
+</p>
+
+<h2>Tool çalıştır</h2>
+<form method="post" action="/investigations/{{ inv.id }}/run">
+  {% for t in tools %}
+  <label>
+    <input type="radio" name="tool" value="{{ t.spec.name }}"
+           {% if loop.first and not t.spec.yetki_ister() %}checked{% endif %}
+           {% if t.spec.yetki_ister() and not inv.yetki_onayi %}disabled{% endif %}>
+    {{ t.spec.name }} <span class="kucuk">[{{ t.spec.passivity.value }}]
+    {{ t.spec.kabul_eder|map(attribute="value")|join(",") }} &rarr;
+    {{ t.spec.uretir|map(attribute="value")|join(",") }}
+    {%- if t.spec.yetki_ister() and not inv.yetki_onayi %} — yetki onayı gerekir{% endif %}</span>
+  </label>
+  {% endfor %}
+  <button type="submit">Kuyruğa at</button>
+</form>
+
+<div hx-get="/investigations/{{ inv.id }}/entities"
+     hx-trigger="load, every 2s"
+     hx-swap="innerHTML">
+  <p class="kucuk">yükleniyor…</p>
+</div>
+{% endblock %}

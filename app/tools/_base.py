@@ -19,9 +19,26 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping, Protocol, runtime_checkable
 
+import yaml
+
 from app.normalize import EntityType
 
+class ToolYuklemeHatasi(Exception):
+    """manifest.yaml var ama tool yüklenemiyor — sessizce atlanmaz."""
+
+
+# manifest.yaml'da bulunması ZORUNLU alanlar (docs/kapsam.md 5.2).
+_MANIFEST_ZORUNLU = (
+    "name",
+    "version",
+    "passivity",
+    "kabul_eder",
+    "uretir",
+    "calistirma",
+)
+
 __all__ = [
+    "ToolYuklemeHatasi",
     "Passivity",
     "RelationType",
     "ToolSpec",
@@ -217,6 +234,15 @@ class ToolRegistry:
     def _kesfet(self, kok: Path) -> None:
         """`app/tools/*/manifest.yaml` dosyalarını okur, adapter'ları yükler.
 
+        SESSİZ ATLAMA İLE NET HATA ARASINDAKİ SINIR:
+
+        * Klasörde `manifest.yaml` YOKSA burası bir tool değildir (`__pycache__`,
+          yardımcı modüller). Sessizce atlanır — bu normal durumdur.
+        * `manifest.yaml` VARSA burası bir tool olmak İDDİASINDADIR. Bozuksa
+          `ToolYuklemeHatasi` fırlatılır. Sessizce atlamak, sistemin bir
+          tool'u fark ettirmeden kaybetmesi demektir; yanlış negatif
+          görünmezdir (İlke 1'in aynı mantığı).
+
         Olmayan veya boş klasör hata DEĞİLDİR: registry boş açılır.
         """
         if not kok.is_dir():
@@ -225,43 +251,130 @@ class ToolRegistry:
             if klasor.name.startswith((".", "_")) or klasor.name == "__pycache__":
                 continue
             manifest = klasor / "manifest.yaml"
-            adapter_py = klasor / "adapter.py"
-            if not manifest.is_file() or not adapter_py.is_file():
-                continue
-            adapter = self._yukle(klasor, adapter_py)
-            if adapter is not None:
-                self.kayit(adapter)
+            if not manifest.is_file():
+                continue  # tool değil
+            self.kayit(self._yukle(klasor, manifest))
 
     @staticmethod
-    def _yukle(klasor: Path, adapter_py: Path) -> ToolAdapter | None:
-        """adapter.py içindeki tek `spec` taşıyan sınıfı örnekler.
+    def _manifest_oku(manifest: Path) -> dict[str, Any]:
+        try:
+            veri = yaml.safe_load(manifest.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError) as e:
+            raise ToolYuklemeHatasi(f"{manifest}: okunamadı/ayrıştırılamadı: {e}") from e
+        if not isinstance(veri, dict):
+            raise ToolYuklemeHatasi(f"{manifest}: kök öğe sözlük olmalı")
 
-        Bozuk bir tool tüm sistemi düşürmez (İlke 5: hata izolasyonu) —
-        yüklenemezse atlanır.
+        eksik = [a for a in _MANIFEST_ZORUNLU if a not in veri]
+        if eksik:
+            raise ToolYuklemeHatasi(f"{manifest}: zorunlu alan eksik: {eksik}")
+
+        try:
+            Passivity(str(veri["passivity"]))
+        except ValueError as e:
+            raise ToolYuklemeHatasi(
+                f"{manifest}: geçersiz passivity {veri['passivity']!r}; "
+                f"beklenen: {[p.value for p in Passivity]}"
+            ) from e
+
+        for alan in ("kabul_eder", "uretir"):
+            deger = veri[alan]
+            if not isinstance(deger, list):
+                raise ToolYuklemeHatasi(f"{manifest}: {alan} liste olmalı")
+            for tip in deger:
+                try:
+                    EntityType(str(tip).lower())
+                except ValueError as e:
+                    raise ToolYuklemeHatasi(
+                        f"{manifest}: {alan} içinde bilinmeyen varlık tipi {tip!r}"
+                    ) from e
+        return veri
+
+    @staticmethod
+    def _yukle(klasor: Path, manifest: Path) -> ToolAdapter:
+        """Manifest'i doğrular, adapter.py'yi yükler, ikisinin tutarlılığını denetler.
+
+        Manifest ile `ToolSpec` iki ayrı doğruluk kaynağıdır ve zamanla
+        birbirinden kayabilir; kaydıkları an registry bir şey, runner başka bir
+        şey görür. Bu yüzden uyuşmazlık sessiz kalmaz, hata olur.
         """
+        veri = ToolRegistry._manifest_oku(manifest)
+
+        adapter_py = klasor / "adapter.py"
+        if not adapter_py.is_file():
+            raise ToolYuklemeHatasi(f"{klasor}: manifest.yaml var ama adapter.py yok")
+
+        # Fixture'sız tool kabul edilmez (docs/kapsam.md 5.2).
+        fixtures = klasor / "fixtures"
+        if not fixtures.is_dir() or not any(fixtures.iterdir()):
+            raise ToolYuklemeHatasi(
+                f"{klasor}: fixtures/ boş veya yok — fixture'sız tool kabul edilmez"
+            )
+
         modul_adi = f"app.tools.{klasor.name}.adapter"
-        spec_ = importlib.util.spec_from_file_location(modul_adi, adapter_py)
-        if spec_ is None or spec_.loader is None:
-            return None
-        modul = importlib.util.module_from_spec(spec_)
+        yukleyici = importlib.util.spec_from_file_location(modul_adi, adapter_py)
+        if yukleyici is None or yukleyici.loader is None:
+            raise ToolYuklemeHatasi(f"{adapter_py}: modül yükleyicisi kurulamadı")
+        modul = importlib.util.module_from_spec(yukleyici)
         try:
             sys.modules[modul_adi] = modul
-            spec_.loader.exec_module(modul)
-        except Exception:
+            yukleyici.loader.exec_module(modul)
+        except Exception as e:
             sys.modules.pop(modul_adi, None)
-            return None
-        for ad in dir(modul):
-            if ad.startswith("_"):
-                continue
-            obj = getattr(modul, ad)
-            if isinstance(obj, type) and isinstance(
-                getattr(obj, "spec", None), ToolSpec
-            ):
-                try:
-                    return obj()
-                except Exception:
-                    return None
-        return None
+            raise ToolYuklemeHatasi(f"{adapter_py}: import edilemedi: {e}") from e
+
+        adaylar = [
+            obj
+            for ad in dir(modul)
+            if not ad.startswith("_")
+            for obj in [getattr(modul, ad)]
+            if isinstance(obj, type) and isinstance(getattr(obj, "spec", None), ToolSpec)
+        ]
+        if not adaylar:
+            raise ToolYuklemeHatasi(
+                f"{adapter_py}: `spec: ToolSpec` taşıyan sınıf bulunamadı"
+            )
+        if len(adaylar) > 1:
+            raise ToolYuklemeHatasi(
+                f"{adapter_py}: birden fazla adapter sınıfı: "
+                f"{[c.__name__ for c in adaylar]}"
+            )
+
+        try:
+            adapter = adaylar[0]()
+        except Exception as e:
+            raise ToolYuklemeHatasi(
+                f"{adapter_py}: {adaylar[0].__name__}() örneklenemedi: {e}"
+            ) from e
+
+        ToolRegistry._tutarlilik_denetle(manifest, veri, adapter.spec)
+        return adapter
+
+    @staticmethod
+    def _tutarlilik_denetle(
+        manifest: Path, veri: dict[str, Any], spec: ToolSpec
+    ) -> None:
+        """Manifest ile ToolSpec aynı şeyi söylemeli."""
+        beklenen: list[tuple[str, Any, Any]] = [
+            ("name", str(veri["name"]), spec.name),
+            ("version", str(veri["version"]), spec.version),
+            ("passivity", Passivity(str(veri["passivity"])), spec.passivity),
+            (
+                "kabul_eder",
+                frozenset(EntityType(str(t).lower()) for t in veri["kabul_eder"]),
+                spec.kabul_eder,
+            ),
+            (
+                "uretir",
+                frozenset(EntityType(str(t).lower()) for t in veri["uretir"]),
+                spec.uretir,
+            ),
+        ]
+        for alan, m_deger, s_deger in beklenen:
+            if m_deger != s_deger:
+                raise ToolYuklemeHatasi(
+                    f"{manifest}: manifest ile ToolSpec uyuşmuyor — "
+                    f"{alan}: manifest={m_deger!r}, spec={s_deger!r}"
+                )
 
     def kayit(self, adapter: ToolAdapter) -> None:
         """Adapter'ı elle kaydeder (test ve `calistirma: python` tool'lar için)."""

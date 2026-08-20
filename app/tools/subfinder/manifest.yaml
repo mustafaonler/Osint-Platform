@@ -1,0 +1,30 @@
+# docs/kapsam.md Bolum 5.2 manifest semasi.
+# Bu dosya + adapter.py + fixtures/ = bir tool. Cekirdek koda dokunulmaz.
+name: subfinder
+version: "2.14.0"
+
+# P0: hedefe HIC dokunulmaz, ucuncu taraf veri kaynaklari sorgulanir.
+# Aktif brute-force MODU KULLANILMAZ (-all/-brute yok) - o Seviye A olurdu.
+passivity: P0
+
+kabul_eder: [DOMAIN]
+uretir: [SUBDOMAIN]
+
+calistirma: docker
+image: osint-subfinder:1.0
+
+auth:
+  gerekli: false
+  # Opsiyonel provider anahtarlari; yoksa subfinder anahtarsiz kaynaklarla koser.
+  env: [SUBFINDER_API_KEYS]
+
+limitler:
+  timeout_sn: 120
+  dakikalik_istek: 5
+  aylik_kota: null
+
+# API tabanli indeks toplayicisi: CT log/RDAP gibi otoriter degil (90),
+# scraping/tahmin de degil (40). docs/veri-modeli.md 2.3.
+varsayilan_guven: 70
+
+etkin: true

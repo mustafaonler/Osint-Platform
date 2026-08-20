@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block icerik %}
+<h1>Araştırmalar</h1>
+
+<table>
+  <tr><th>Ad</th><th>Kök hedef</th><th>Yetki</th><th>Oluşturan</th><th>Tarih</th></tr>
+  {% for a in arastirmalar %}
+  <tr>
+    <td><a href="/investigations/{{ a.id }}">{{ a.ad }}</a></td>
+    <td>{{ a.kok_hedef }}</td>
+    <td>{{ "onaylı" if a.yetki_onayi else "yok" }}</td>
+    <td>{{ a.olusturan }}</td>
+    <td class="kucuk">{{ a.olusturma.strftime("%Y-%m-%d %H:%M") }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="5" class="kucuk">henüz araştırma yok</td></tr>
+  {% endfor %}
+</table>
+
+<h2>Yeni araştırma</h2>
+<form method="post" action="/investigations">
+  <label>Ad <input type="text" name="ad" required></label>
+  <label>Kök hedef <input type="text" name="kok_hedef" placeholder="firma.com" required></label>
+  <label>Oluşturan <input type="text" name="olusturan" value="ekip"></label>
+  <label>Kapsam notu <input type="text" name="kapsam_notu"></label>
+  <label><input type="checkbox" name="yetki_onayi" value="true"> Yetki onayı var (P2 modülleri açılır)</label>
+  <label>Yetki notu <input type="text" name="yetki_notu" placeholder="kim, ne zaman, hangi belgeye dayanarak"></label>
+  <button type="submit">Oluştur</button>
+</form>
+{% endblock %}

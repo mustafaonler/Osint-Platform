@@ -1,8 +1,8 @@
 # docs/kapsam.md Bölüm 5 — dağıtım: docker-compose
 #
-# GÜVENLİK: api, db ve redis portları YALNIZCA 127.0.0.1'e bağlanır.
-# 0.0.0.0 KULLANILMAZ — halka açık instance yayınlanmaz (Bölüm 9).
-# Uzaktan erişim VPN/Tailscale ile sağlanır, port açarak değil.
+# GÜVENLİK: api portu YALNIZCA 127.0.0.1'e bağlanır. 0.0.0.0 KULLANILMAZ —
+# halka açık instance yayınlanmaz (Bölüm 9). Uzaktan erişim VPN/Tailscale ile
+# sağlanır, port açarak değil.
 
 name: osint-platform
 
@@ -14,8 +14,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-    ports:
-      - "127.0.0.1:5432:5432"
+    # PORT YAYINLANMIYOR — bilinçli. Gerekçe `networks` bölümünde.
+    # Host'tan erişim: `docker compose exec db psql -U osint -d osint`
+    networks: [data]
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -27,8 +28,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:6379:6379"
+    networks: [data]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -45,8 +45,13 @@ services:
       uvicorn app.main:app --host 0.0.0.0 --port 8000
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
+    # İKİ AĞDA birden: `data` db/redis için, `egress` Gemini API için.
+    networks: [data, egress]
     volumes:
       - ./data/raw:/data/raw
+      # Geliştirmede kaynak kodu canlı bağlanır: migration ve test çalıştırmak
+      # için her seferinde imaj yeniden inşa edilmesin.
+      - .:/app
     depends_on:
       db:
         condition: service_healthy
@@ -58,16 +63,63 @@ services:
     restart: unless-stopped
     env_file: .env
     command: celery -A app.worker.celery_app worker --loglevel=info
+    networks: [data, egress]
     volumes:
       - ./data/raw:/data/raw
+      - .:/app
       # Tool'lar kendi container'larında izole çalışır (İlke 5); worker bunları
       # ayağa kaldırmak için Docker soketine ihtiyaç duyar.
       - /var/run/docker.sock:/var/run/docker.sock
+    # Soket root:root 660'tır; imaj uid 1000 ile koşar ve onsuz "Permission
+    # denied" alır. uid'yi root YAPMAK YERİNE yalnızca grup 0 üyeliği verilir.
+    #
+    # DÜRÜST OLMAK GEREKİRSE: Docker soketine erişebilen, host'ta root olabilir
+    # (ayrıcalıklı container açarak). Yani worker'ın uid 1000 olması burada
+    # kozmetiktir. Asıl izolasyon, GÜVENİLMEYEN VERİYİ İŞLEYEN yerde — tool
+    # container'larında — ve o gerçekten uygulanıyor (bkz. app/runner.py).
+    # Sertleştirme yolu: soketi doğrudan mount etmek yerine yalnızca gerekli
+    # uç noktaları açan bir docker-socket-proxy. v1 kapsamında değil.
+    group_add:
+      - "0"
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+
+networks:
+  # ------------------------------------------------------------------------ #
+  # AĞ KARARI — ölçümle alındı, bkz. app/runner.py `_ag_hazirla` docstring'i
+  # ------------------------------------------------------------------------ #
+  #
+  # Tool container'ları hedefin kontrol ettiği veriyi işler ve db/redis'i
+  # GÖRMEMELİDİR. İlk tasarım tool'ları ayrı bir bridge ağına (`osint-tools`)
+  # koymaktı; ÖLÇÜM bunun yetmediğini gösterdi: Docker Desktop 29.7.2 çapraz
+  # bridge trafiğini düşürmüyor, tool container'ı db'ye doğrudan IP ile
+  # (172.19 ağından 172.18.0.3:5432) ULAŞIYORDU.
+  #
+  # Çalışan tek Docker ilkeli `internal: true`. Ölçülen davranış:
+  #   internal ağa BAŞKA bir bridge'den giriş  -> ENGELLENİYOR  (istediğimiz)
+  #   internal ağda yayınlanan port (-p)       -> ÇALIŞMIYOR    (bedeli)
+  #
+  # Kısıtı VERİ katmanına koyduk, tool katmanına değil. Gerekçe: db ve redis'in
+  # zaten hiç internet erişimine ihtiyacı yok, tool'ların ise var. Kısıtı
+  # tool tarafına koymak (tool ağını internal yapmak) çıkışı da keserdi ve
+  # tool'ları bir egress proxy'ye bağımlı kılardı — üstelik `enable_icc=false`
+  # tool→proxy trafiğini de kestiği için her iş kendi ağını açmak zorunda
+  # kalırdı. Kısıt, ona en az ihtiyaç duyan katmanda durur.
+  #
+  # BEDELİ: db host'tan TCP ile erişilemez. Migration ve veritabanına dokunan
+  # testler container içinden koşar:
+  #   docker compose run --rm api python -m alembic upgrade head
+  #   docker compose run --rm api python -m pytest tests/test_ingest.py -v
+  data:
+    name: osint-data
+    internal: true
+
+  # api ve worker'ın dış dünyaya (Gemini API) çıktığı ağ.
+  egress:
+    name: osint-egress
 
 volumes:
   pgdata:

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block baslik %}{{ entity.deger_ham }}{% endblock %}
+{% block icerik %}
+<p class="kucuk"><a href="/investigations/{{ entity.investigation_id }}">&larr; {{ inv.ad if inv else "araştırma" }}</a></p>
+<h1>{{ entity.tip }} — {{ entity.deger_ham }}</h1>
+<table>
+  <tr><th>Normalize değer</th><td>{{ entity.deger_norm }}</td></tr>
+  <tr><th>İlk görülme</th><td class="kucuk">{{ entity.ilk_gorulme }}</td></tr>
+  <tr><th>Son görülme</th><td class="kucuk">{{ entity.son_gorulme }}</td></tr>
+  <tr><th>Gözlem sayısı</th><td>{{ entity.gozlem_sayisi }}</td></tr>
+  <tr><th>Nitelikler</th><td class="kucuk">{{ entity.nitelikler }}</td></tr>
+</table>
+
+<h2>Kanıt zinciri</h2>
+<!-- Ilke 2: her bulgu ham ciktisina kadar izlenebilir. -->
+<table>
+  <tr><th>Tool</th><th>Sürüm</th><th>Güven</th><th>Zaman</th>
+      <th>Ham çıktı</th><th>Çıktı içindeki yer</th><th>Veri</th></tr>
+  {% for o in gozlemler %}
+  <tr>
+    <td>{{ o.tool }}</td>
+    <td class="kucuk">{{ o.tool_version }}</td>
+    <td>{{ o.guven }}</td>
+    <td class="kucuk">{{ o.zaman.strftime("%Y-%m-%d %H:%M:%S") }}</td>
+    <td class="kucuk">{{ o.ham_cikti_ref }}</td>
+    <td class="kucuk">{{ o.ham_cikti_yol or "—" }}</td>
+    <td class="kucuk">{{ o.veri }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="7" class="kucuk">gözlem yok</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

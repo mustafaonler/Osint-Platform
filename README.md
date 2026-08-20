@@ -227,13 +227,7 @@ ertelenmiştir.
 Windows / PowerShell. `pip` ve `alembic` PATH'te olmayabilir; her zaman
 `python -m ...` biçimi kullanılır.
 
-**1. Servisleri başlat**
-
-```powershell
-docker compose up -d db redis
-```
-
-**2. Yapılandırmayı hazırla**
+**1. Yapılandırmayı hazırla**
 
 ```powershell
 Copy-Item .env.example .env
@@ -242,34 +236,61 @@ Copy-Item .env.example .env
 `.env` içindeki `POSTGRES_PASSWORD` ve `DATABASE_URL` parolasını değiştirin.
 `.env` commit edilmez.
 
-> **Windows'ta önemli:** `ALEMBIC_DATABASE_URL` içinde `localhost` değil,
-> `127.0.0.1` yazın. `localhost` önce `::1`'e (IPv6) çözülür, docker-compose ise
-> portları yalnızca IPv4 `127.0.0.1`'e yayınlar. Sonuç: her bağlantı önce IPv6'da
-> TCP zaman aşımını bekler (100 saniyeden fazla) ve her şey donmuş gibi görünür.
-> Doğru yazımda aynı bağlantı 10 milisaniyenin altındadır.
+**2. Servisleri başlat**
 
-Neden iki ayrı URL: `DATABASE_URL` container ağı içindeki adı (`db`) kullanır ve
-api/worker servisleri onu okur. `ALEMBIC_DATABASE_URL` ise host'tan çalışan
-alembic ve pytest içindir. Aynı veritabanının nerede durduğunuza göre iki farklı
-adı vardır.
+```powershell
+docker compose up -d db redis
+```
 
-**3. Bağımlılıklar ve şema**
+**3. Şemayı kur**
+
+Veritabanı `osint-data` internal ağındadır ve host'tan TCP ile erişilemez;
+migration container içinden koşar:
+
+```powershell
+docker compose run --rm --no-deps api python -m alembic upgrade head
+```
+
+**4. Testler**
+
+Test seti ikiye ayrılır, çünkü iki farklı yere erişim isterler:
+
+```powershell
+python -m pytest tests/test_normalize.py tests/test_runner.py -v
+```
+
+Normalizasyon testleri hiçbir şeye bağlı değildir. Runner testleri Docker
+soketine ihtiyaç duyar ve host'ta koşar (Docker Desktop ayakta olmalı).
+
+```powershell
+docker compose run --rm --no-deps api python -m pytest tests/test_ingest.py -v
+```
+
+Ingest testleri veritabanına dokunur, dolayısıyla `osint-data` ağındaki bir
+container içinden koşar. Host'tan çalıştırılırsa sessizce atlanırlar.
+
+Yerel geliştirme için bağımlılıkları host'a da kurmak gerekir:
 
 ```powershell
 python -m pip install -r requirements.txt
 ```
 
+### Veritabanı host'tan neden erişilemiyor
+
+Tool container'ları hedefin kontrol ettiği veriyi işler ve db/redis'i
+görmemelidir. Bunu yalnızca ayrı bir bridge ağı ile çözmek YETMİYOR: ölçüm,
+Docker Desktop 29.7.2'nin çapraz bridge trafiğini düşürmediğini, tool
+container'ının db'ye doğrudan IP ile ulaşabildiğini gösterdi. İşe yarayan tek
+Docker ilkeli `internal: true`, onun da yayınlanan portları devre dışı bırakmak
+gibi bir bedeli var. Kısıt, internete hiç ihtiyacı olmayan veri katmanına
+konuldu. Ayrıntı: `docker-compose.yml` içindeki `networks` bölümü ve
+`app/runner.py` içindeki `_ag_hazirla` docstring'i.
+
+Elle SQL için:
+
 ```powershell
-python -m alembic upgrade head
+docker compose exec db psql -U osint -d osint
 ```
-
-**4. Testler**
-
-```powershell
-python -m pytest tests/ -v
-```
-
-Veritabanı ayakta değilse ingest testleri atlanır, normalizasyon testleri koşar.
 
 ---
 
