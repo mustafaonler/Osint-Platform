@@ -1,0 +1,31 @@
+# docs/kapsam.md Bolum 5.2 manifest semasi.
+# dig ile ESDEGER yetenek; ayrica `dig` tool'u EKLENMEZ (Bolum 3.3):
+# ayni veriyi iki kez toplayip gereksiz dedup yuku yaratirdi.
+name: dns-resolver
+version: "1.0"
+
+# P1: PUBLIC resolver kullanilir (1.1.1.1). Hedefin kendi authoritative
+# NS'ine yoneltilirse P2'ye duser ve yetki onayi ister - bkz. adapter.py
+# icindeki `calistir` docstring'i.
+passivity: P1
+
+kabul_eder: [DOMAIN, SUBDOMAIN]
+uretir: [IP, SUBDOMAIN, TECH, ORG]
+
+calistirma: api
+image: null
+
+auth:
+  gerekli: false
+  env: []
+
+limitler:
+  timeout_sn: 30
+  dakikalik_istek: 60
+  aylik_kota: null
+
+# Public resolver yaniti otoriter degil (onbellekli olabilir) ama tahmin de
+# degil; CT logunun (90) hemen altinda.
+varsayilan_guven: 85
+
+etkin: true

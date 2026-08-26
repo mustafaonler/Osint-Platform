@@ -70,6 +70,7 @@ class RelationType(StrEnum):
 
     SUBDOMAIN_OF = "subdomain_of"  # sub → domain
     RESOLVES_TO = "resolves_to"  # domain/sub → ip
+    CNAME_FOR = "cname_for"  # takma ad → asıl ad (alias → canonical)
     MX_FOR = "mx_for"  # sub → domain
     NS_FOR = "ns_for"  # sub → domain
     CERT_FOR = "cert_for"  # cert → domain/sub
@@ -98,11 +99,18 @@ class ToolSpec:
     calistirma: str  # "api" | "docker" | "python"
     image: str | None = None
     auth_env: tuple[str, ...] = ()
+    # TEK DENEME içindir, toplam değil — gerekçe `toplam_butce_sn`'de.
     timeout_sn: int = 60
     dakikalik_istek: int | None = None
     aylik_kota: int | None = None
     varsayilan_guven: int = 50
     etkin: bool = True
+
+    # -- retry ------------------------------------------------------------- #
+    # Varsayılanlar makuldür; manifest bunları YAZMAK ZORUNDA DEĞİLDİR.
+    # Yalnızca alışılmadık bir davranış isteyen tool kendi değerini bildirir.
+    max_deneme: int = 3
+    geri_cekilme_sn: float = 2.0  # üstel: 2, 4, 8...
 
     def yetki_ister(self) -> bool:
         """P2 ve A seviyesi `investigation.yetki_onayi` olmadan ÇALIŞTIRILMAZ.
@@ -110,6 +118,41 @@ class ToolSpec:
         Bu kontrol RUNNER'da yapılır, arayüzde değil — arayüz kontrolü atlanabilir.
         """
         return self.passivity in (Passivity.P2, Passivity.A)
+
+    def geri_cekilme(self, deneme: int) -> float:
+        """`deneme`. denemeden SONRA beklenecek taban süre (1 tabanlı).
+
+        Üstel: 2, 4, 8... Jitter runner'da eklenir, burada değil — bu fonksiyon
+        saf kalsın ki test edilebilsin.
+        """
+        return self.geri_cekilme_sn * (2 ** max(0, deneme - 1))
+
+    def toplam_butce_sn(self) -> float:
+        """TÜM denemelerin üst sınırı: son deneme de dahil en kötü hâl.
+
+        `timeout_sn` NEDEN TEK DENEME İÇİN
+        ------------------------------------------------------------------
+        Alternatif — `timeout_sn`'i toplam bütçe saymak — sessiz bir tuzaktır:
+        `max_deneme` 3'e çıkınca tek çağrının etkin süresi 45 sn'den 15 sn'ye
+        DÜŞER. Manifest'te "timeout_sn: 45" yazan tool yazarı bunu beklemez ve
+        45 saniye süren meşru bir sorgu, retry açıldığı için kırılmaya başlar.
+        Bir alanın anlamının başka bir alanın değerine göre değişmesi kötü
+        sözleşmedir.
+
+        Bu yüzden `timeout_sn` HER DENEME için geçerlidir ve kuyruğu koruyan
+        ayrı bir tavan burada hesaplanır.
+
+        Bu değer bir SON TARİHTİR: runner, süre dolduysa YENİ deneme
+        başlatmaz. Başlamış bir deneme kesilmez, dolayısıyla gerçek duvar saati
+        süresi bu bütçeyi en fazla bir `timeout_sn` kadar aşabilir. Alternatifi
+        — her retry öncesi tam bir `timeout_sn` kadar boş yer aramak — en kötü
+        hâl bütçeye tıpatıp eşit olduğu için son denemeyi HER ZAMAN iptal eder
+        ve `max_deneme` sessizce bir eksik çalışır.
+        """
+        beklemeler = sum(
+            self.geri_cekilme(d) for d in range(1, max(1, self.max_deneme))
+        )
+        return self.timeout_sn * self.max_deneme + beklemeler
 
 
 @dataclass(frozen=True)
@@ -137,7 +180,15 @@ class ToolConfig:
 
 @dataclass(frozen=True)
 class RawResult:
-    """Tool'un işlenmemiş çıktısı."""
+    """Tool'un işlenmemiş çıktısı.
+
+    `cikis_kodu` SÖZLEŞMESİ — runner retry kararını buna bakarak verir:
+        0    başarılı
+        >0   API tool'unda HTTP durum kodu, docker tool'unda container çıkış kodu
+        -1   TAŞIMA KATMANI hatası (bağlantı kurulamadı, okuma zaman aşımı)
+    Adapter bağlantı hatasında istisna fırlatmaz, -1 döndürür; böylece ham
+    gövde (varsa) yine arşivlenir ve hata sınıflandırılabilir kalır.
+    """
 
     icerik: bytes
     format: str  # "json" | "text" | "xml"
@@ -369,6 +420,30 @@ class ToolRegistry:
                 spec.uretir,
             ),
         ]
+        # `limitler` bloğundakiler İSTEĞE BAĞLIDIR: yazılmamışsa ToolSpec'in
+        # makul varsayılanı geçerlidir ve her manifest'in retry ayarı yazmak
+        # zorunda kalması engellenir. Ama YAZILMIŞSA tutması gerekir — sessiz
+        # kayma, iki doğruluk kaynağının en tehlikeli hâlidir.
+        limitler = veri.get("limitler") or {}
+        if isinstance(limitler, dict):
+            for alan, donustur, spec_deger in (
+                ("timeout_sn", int, spec.timeout_sn),
+                ("dakikalik_istek", int, spec.dakikalik_istek),
+                ("aylik_kota", int, spec.aylik_kota),
+                ("max_deneme", int, spec.max_deneme),
+                ("geri_cekilme_sn", float, spec.geri_cekilme_sn),
+            ):
+                if limitler.get(alan) is None:
+                    continue
+                try:
+                    m_deger = donustur(limitler[alan])
+                except (TypeError, ValueError) as e:
+                    raise ToolYuklemeHatasi(
+                        f"{manifest}: limitler.{alan} sayı olmalı, "
+                        f"{limitler[alan]!r} geldi"
+                    ) from e
+                beklenen.append((f"limitler.{alan}", m_deger, spec_deger))
+
         for alan, m_deger, s_deger in beklenen:
             if m_deger != s_deger:
                 raise ToolYuklemeHatasi(

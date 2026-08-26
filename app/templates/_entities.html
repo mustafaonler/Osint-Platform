@@ -1,17 +1,22 @@
 <h2>İşler</h2>
 <table>
-  <tr><th>Tool</th><th>Hedef</th><th>Durum</th><th>Derinlik</th><th>Süre</th><th>Hata</th></tr>
+  <tr><th>Tool</th><th>Hedef</th><th>Durum</th><th>Deneme</th><th>Derinlik</th><th>Süre</th><th>Hata</th></tr>
   {% for j in isler %}
   <tr>
     <td>{{ j.tool }}</td>
     <td class="kucuk">{{ j.hedef_deger }}</td>
     <td class="durum {{ j.durum }}">{{ j.durum }}</td>
+    <!-- Birden fazla deneme vurgulanir: "israrla denendi ama olmadi" bilgisi
+         analistin kararini degistirir. -->
+    <td{% if j.deneme_sayisi and j.deneme_sayisi > 1 %} class="failed"{% endif %}>
+      {{ j.deneme_sayisi or "" }}{% if j.deneme_sayisi and j.deneme_sayisi > 1 %}x{% endif %}
+    </td>
     <td>{{ j.derinlik }}</td>
     <td class="kucuk">{{ (j.sure_ms ~ " ms") if j.sure_ms else "" }}</td>
     <td class="kucuk">{{ (j.hata_mesaji or "")[:120] }}</td>
   </tr>
   {% else %}
-  <tr><td colspan="6" class="kucuk">henüz iş yok</td></tr>
+  <tr><td colspan="7" class="kucuk">henüz iş yok</td></tr>
   {% endfor %}
 </table>
 

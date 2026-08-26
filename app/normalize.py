@@ -286,13 +286,43 @@ def _norm_email(ham: str) -> str:
     return f"{local}@{_norm_host(alan)}"
 
 
+# X.509 seri numarası 1-20 bayt (2-40 hex), SHA-256 parmak izi 64 hex.
+_CERT_HEX_ALT, _CERT_HEX_UST = 8, 64
+
+
 def _norm_cert(ham: str) -> str:
-    """Bölüm 3.5. Kimlik = SHA-256 parmak izi, 64 karakter hex."""
+    """Bölüm 3.5 + 4.3 — sertifikanın en güçlü hex tanımlayıcısı.
+
+    SPESİFİKASYON KENDİ İÇİNDE ÇELİŞİYOR, çözüm burada
+    ------------------------------------------------------------------
+    Bölüm 3.5 "kimlik = SHA-256 parmak izi (64 hex)" diyor. Ama Bölüm 4.3'teki
+    örnek crt.sh adapter'ı `serial_number` alanını CERT değeri olarak
+    kullanıyor ve crt.sh'ın arama uç noktası parmak izini HİÇ döndürmüyor —
+    ölçtük: dönen serial 32 hex. Yalnızca 64 hex kabul edilirse crt.sh'tan
+    gelen her sertifika gözlemi `gecerli_mi` süzgecine takılır ve tüm CT log
+    ailesi (crtsh, certspotter) CERT üretemez hâle gelir.
+
+    Karar: 8-64 hex aralığındaki tanımlayıcılar kabul edilir. Parmak izi
+    varsa (TLS el sıkışması, certspotter) o kullanılır; yoksa X.509 seri
+    numarası kullanılır.
+
+    KABUL EDİLEN SINIRLAMA: iki kaynak aynı sertifikayı farklı tanımlayıcıyla
+    bildirirse (biri parmak izi, biri seri) tekilleşme OLMAZ, iki entity
+    oluşur. v1'de bu bilinçli bir eksiktir — ayrı kalmak, yanlış birleştirmekten
+    daha az zararlıdır (aynı gerekçe ORG tipinde de geçerli, Bölüm 3.8).
+    Kalıcı çözüm sertifikanın tamamını çekip parmak izini hesaplamaktır;
+    sertifika başına ek bir HTTP isteği demektir, v1 kapsamında değildir.
+    """
     s = "".join(ham.split()).replace(":", "").lower()
-    if s.startswith("sha256:"):
-        s = s[len("sha256:") :]
-    if len(s) != 64 or any(c not in "0123456789abcdef" for c in s):
-        raise NormalizeError(f"geçersiz SHA-256 parmak izi: {ham!r}")
+    if s.startswith("sha256"):
+        s = s[len("sha256") :]
+    if any(c not in "0123456789abcdef" for c in s):
+        raise NormalizeError(f"hex olmayan sertifika tanımlayıcısı: {ham!r}")
+    if not _CERT_HEX_ALT <= len(s) <= _CERT_HEX_UST:
+        raise NormalizeError(
+            f"sertifika tanımlayıcısı {_CERT_HEX_ALT}-{_CERT_HEX_UST} hex "
+            f"olmalı, {len(s)} geldi: {ham!r}"
+        )
     return s
 
 

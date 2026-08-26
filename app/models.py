@@ -295,6 +295,13 @@ class Job(Base):
     )
     hata_mesaji: Mapped[str | None] = mapped_column(Text)
     cikis_kodu: Mapped[int | None] = mapped_column(Integer)
+    # Kaç kez denendi (retry dahil). 1 = ilk denemede bitti.
+    # Analist, bir işin 3 kez denenip düştüğünü GÖRMELİDİR: "hiç çalışmadı" ile
+    # "ısrarla denendi ama servis düşüktü" farklı sonuçlardır ve farklı
+    # aksiyonları gerektirir.
+    deneme_sayisi: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default=text("0")
+    )
     baslangic: Mapped[datetime | None] = mapped_column(_TS)
     bitis: Mapped[datetime | None] = mapped_column(_TS)
     sure_ms: Mapped[int | None] = mapped_column(Integer)

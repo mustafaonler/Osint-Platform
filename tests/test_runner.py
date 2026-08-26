@@ -18,7 +18,7 @@ from docker.errors import DockerException
 
 from app.models import JobStatus
 from app.runner import GUVENLIK_BAYRAKLARI, ContainerRunner, RunnerConfig
-from app.tools._base import Passivity, ToolSpec
+from app.tools._base import Passivity, RawResult, ToolSpec
 from app.normalize import EntityType
 
 ALPINE = "alpine:3.20"
@@ -56,6 +56,8 @@ def _spec(
     timeout_sn: int = 60,
     image: str | None = ALPINE,
     etkin: bool = True,
+    calistirma: str = "docker",
+    auth_env: tuple[str, ...] = (),
 ) -> ToolSpec:
     return ToolSpec(
         name=ad,
@@ -63,8 +65,9 @@ def _spec(
         passivity=passivity,
         kabul_eder=frozenset({EntityType.DOMAIN}),
         uretir=frozenset({EntityType.SUBDOMAIN}),
-        calistirma="docker",
+        calistirma=calistirma,
         image=image,
+        auth_env=auth_env,
         timeout_sn=timeout_sn,
         etkin=etkin,
     )
@@ -366,3 +369,207 @@ def test_ag_izole_bayragiyla_kuruldu(runner):
     assert ag.attrs["Options"].get("com.docker.network.bridge.enable_icc") == "false"
     # `internal` olmamalı: o bayrak dış çıkışı da keserdi.
     assert ag.attrs.get("Internal") is False
+
+
+# --------------------------------------------------------------------------- #
+# ApiRunner ve ToolRunner — `calistirma: "api"` yolu
+#
+# Bu testler Docker İSTEMEZ: API tool'u container açmaz. Sahte adapter'larla
+# koşarlar, dolayısıyla crt.sh ayakta olmasa da anlamlıdırlar.
+# --------------------------------------------------------------------------- #
+
+import time as _time
+
+from app.runner import ApiRunner, ToolRunner
+
+
+class _SahteApiAdapter:
+    """calistirma='api' olan asgari adapter."""
+
+    cikti_formati = "json"
+
+    def __init__(self, *, gecikme=0.0, patlat=None, govde=b'{"ok":1}', kod=0, spec=None):
+        self.spec = spec or _spec(ad="sahte-api", calistirma="api", image=None)
+        self._gecikme = gecikme
+        self._patlat = patlat
+        self._govde = govde
+        self._kod = kod
+        self.cagrildi = 0
+        self.gecen_cfg = None
+
+    def calistir(self, hedef, cfg):
+        self.cagrildi += 1
+        self.gecen_cfg = cfg
+        if self._gecikme:
+            _time.sleep(self._gecikme)
+        if self._patlat is not None:
+            raise self._patlat
+        return RawResult(icerik=self._govde, format="json", cikis_kodu=self._kod)
+
+    def parse(self, ham):
+        return []
+
+
+def _api_runner(tmp_path) -> ApiRunner:
+    return ApiRunner(RunnerConfig(raw_kok=tmp_path / "raw"))
+
+
+def test_api_basarili_calisma(tmp_path):
+    a = _SahteApiAdapter(govde=b'[{"host":"a.firma.com"}]')
+    s = _api_runner(tmp_path).calistir(a, "firma.com", uuid.uuid4())
+
+    assert s.durum is JobStatus.SUCCESS
+    assert s.cikis_kodu == 0
+    assert s.ham.icerik == b'[{"host":"a.firma.com"}]'
+    assert a.cagrildi == 1
+
+
+def test_api_ham_cikti_diske_yazilir(tmp_path):
+    """İlke 2, çalıştırma biçiminden bağımsızdır."""
+    job_id = uuid.uuid4()
+    a = _SahteApiAdapter(govde=b'{"kanit":true}')
+    s = _api_runner(tmp_path).calistir(a, "firma.com", job_id)
+
+    yol = tmp_path / "raw" / str(job_id) / "output.json"
+    assert s.ham_cikti_ref == str(yol)
+    assert yol.is_file() and yol.read_bytes() == b'{"kanit":true}'
+
+
+def test_api_http_hatasi_failed(tmp_path):
+    """Adapter HTTP durumunu çıkış kodu olarak bildirir (crt.sh 502 gibi)."""
+    a = _SahteApiAdapter(govde=b"<html>502</html>", kod=502)
+    s = _api_runner(tmp_path).calistir(a, "firma.com", uuid.uuid4())
+
+    assert s.durum is JobStatus.FAILED
+    assert s.cikis_kodu == 502
+    assert "502" in (s.hata_mesaji or "")
+
+
+def test_api_hatali_govde_bile_arsivlenir(tmp_path):
+    """'Neden düştü' sorusunun kanıtı 502 gövdesidir."""
+    job_id = uuid.uuid4()
+    a = _SahteApiAdapter(govde=b"<html>502 Bad Gateway</html>", kod=502)
+    s = _api_runner(tmp_path).calistir(a, "firma.com", job_id)
+
+    yol = tmp_path / "raw" / str(job_id) / "output.json"
+    assert s.durum is JobStatus.FAILED
+    assert yol.is_file()
+    assert b"502" in yol.read_bytes()
+
+
+def test_api_adapter_patlarsa_worker_cokmez(tmp_path):
+    a = _SahteApiAdapter(patlat=RuntimeError("baglanti koptu"))
+    s = _api_runner(tmp_path).calistir(a, "firma.com", uuid.uuid4())
+
+    assert s.durum is JobStatus.FAILED
+    assert "RuntimeError" in (s.hata_mesaji or "")
+    assert "baglanti koptu" in (s.hata_mesaji or "")
+
+
+def test_api_timeout_runner_tarafindan_uygulanir(tmp_path):
+    """Adapter kendi timeout'unu unutsa bile iş burada kesilir."""
+    a = _SahteApiAdapter(
+        gecikme=30, spec=_spec(ad="yavas", calistirma="api", image=None, timeout_sn=1)
+    )
+    basla = _time.monotonic()
+    s = _api_runner(tmp_path).calistir(a, "firma.com", uuid.uuid4())
+    gecen = _time.monotonic() - basla
+
+    assert s.durum is JobStatus.TIMEOUT
+    assert gecen < 25, "timeout uygulanmadı"
+    assert "timeout" in (s.hata_mesaji or "").lower()
+
+
+@pytest.mark.parametrize("seviye", [Passivity.P2, Passivity.A])
+def test_api_yetki_isteyen_tool_cagrilmaz(tmp_path, seviye):
+    """Pasiflik kontrolü çalıştırma biçiminden BAĞIMSIZDIR."""
+    a = _SahteApiAdapter(
+        spec=_spec(ad="p2-api", passivity=seviye, calistirma="api", image=None)
+    )
+    s = _api_runner(tmp_path).calistir(a, "firma.com", uuid.uuid4(), yetki_onayi=False)
+
+    assert s.durum is JobStatus.SKIPPED
+    assert a.cagrildi == 0, "adapter yetkisiz çağrıldı"
+    assert s.ham_cikti_ref is None
+
+
+def test_api_yetki_onayi_varsa_calisir(tmp_path):
+    a = _SahteApiAdapter(
+        spec=_spec(ad="p2-api", passivity=Passivity.P2, calistirma="api", image=None)
+    )
+    s = _api_runner(tmp_path).calistir(a, "firma.com", uuid.uuid4(), yetki_onayi=True)
+    assert s.durum is JobStatus.SUCCESS
+    assert a.cagrildi == 1
+
+
+def test_api_env_yalnizca_istenen_anahtarlari_gecirir(tmp_path, monkeypatch):
+    """Bir tool başka bir tool'un anahtarını görmemeli."""
+    monkeypatch.setenv("BENIM_ANAHTARIM", "gizli")
+    monkeypatch.setenv("BASKASININ_ANAHTARI", "dokunma")
+    a = _SahteApiAdapter(
+        spec=_spec(
+            ad="anahtarli",
+            calistirma="api",
+            image=None,
+            auth_env=("BENIM_ANAHTARIM",),
+        )
+    )
+    _api_runner(tmp_path).calistir(a, "firma.com", uuid.uuid4())
+
+    assert a.gecen_cfg.env == {"BENIM_ANAHTARIM": "gizli"}
+    assert "BASKASININ_ANAHTARI" not in a.gecen_cfg.env
+
+
+# --- dağıtıcı --------------------------------------------------------------- #
+
+
+def test_dagitici_api_yolunu_secer(tmp_path):
+    a = _SahteApiAdapter(govde=b"api-yolu")
+    s = ToolRunner(RunnerConfig(raw_kok=tmp_path / "raw")).calistir(
+        a, "firma.com", uuid.uuid4()
+    )
+    assert s.durum is JobStatus.SUCCESS
+    assert s.ham.icerik == b"api-yolu"
+
+
+def test_dagitici_docker_yolunu_secer(tmp_path, client):
+    """Aynı dağıtıcı, container tool'unu ContainerRunner'a yollar."""
+
+    class _DockerAdapter:
+        spec = _spec(ad="docker-tool")
+
+        def parse(self, ham):
+            return []
+
+    r = ToolRunner(RunnerConfig(raw_kok=tmp_path / "raw"), client=client)
+    s = r.calistir(
+        _DockerAdapter(), "firma.com", uuid.uuid4(), komut=["echo", "container-yolu"]
+    )
+    assert s.durum is JobStatus.SUCCESS
+    assert b"container-yolu" in s.ham.icerik
+
+
+def test_dagitici_bilinmeyen_bicimde_net_hata(tmp_path):
+    class _Garip:
+        spec = _spec(ad="garip", calistirma="karga", image=None)
+
+        def parse(self, ham):
+            return []
+
+    s = ToolRunner(RunnerConfig(raw_kok=tmp_path / "raw")).calistir(
+        _Garip(), "firma.com", uuid.uuid4()
+    )
+    assert s.durum is JobStatus.FAILED
+    assert "calistirma" in (s.hata_mesaji or "")
+    assert "karga" in (s.hata_mesaji or "")
+
+
+def test_dagitici_cikti_formatini_adapterdan_alir(tmp_path):
+    class _Jsonl(_SahteApiAdapter):
+        cikti_formati = "jsonl"
+
+    job_id = uuid.uuid4()
+    ToolRunner(RunnerConfig(raw_kok=tmp_path / "raw")).calistir(
+        _Jsonl(), "firma.com", job_id
+    )
+    assert (tmp_path / "raw" / str(job_id) / "output.jsonl").is_file()

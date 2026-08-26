@@ -1,0 +1,30 @@
+# docs/kapsam.md Bolum 5.2 manifest semasi.
+name: crtsh
+version: "1.0"
+
+# P0: hedefe HIC dokunulmaz. Sorgulanan ucuncu taraf bir CT log toplayicisidir.
+passivity: P0
+
+kabul_eder: [DOMAIN]
+uretir: [SUBDOMAIN, CERT]
+
+# Container YOK: tek bir HTTP istegi icin imaj insa etmek anlamsiz.
+calistirma: api
+image: null
+
+auth:
+  gerekli: false
+  env: []
+
+limitler:
+  # crt.sh yavastir ve nazik davranilmasini bekler; hizli ardisik istekte
+  # 502 doner (olctuk).
+  timeout_sn: 45
+  dakikalik_istek: 5
+  aylik_kota: null
+
+# CT loglari OTORITER kaynaktir: sertifika gercekten verilmistir.
+# docs/veri-modeli.md 2.3 -> otoriter 90, API indeksi 70, scraping 40.
+varsayilan_guven: 90
+
+etkin: true

@@ -370,6 +370,17 @@ def registry():
     return ToolRegistry(TOOL_KOK)
 
 
+def _domain_tuketen_sayisi(registry) -> int:
+    """DOMAIN'i tüketen etkin tool sayısı.
+
+    SABİT YAZILMAZ: yeni bir DOMAIN tool'u eklendiğinde zincirleme sayısı
+    kendiliğinden artar — yetenek grafiğinin işi budur. Sayıyı teste gömmek,
+    her tool eklemede çekirdek testleri kırardı ve "tool eklemek ucuz" iddiası
+    yalan olurdu.
+    """
+    return len(registry.tuketenler(EntityType.DOMAIN))
+
+
 def _obs(deger_ham, tip=EntityType.SUBDOMAIN, **kw):
     return Observation(tip=tip, deger_ham=deger_ham, **kw)
 
@@ -425,7 +436,17 @@ def test_ingest_guven_gozlemden_gelirse_onu_kullanir(session, inv_id, job):
         session, job, [_obs("a.firma.com", guven=95)], spec=SAHTE_SPEC, ham_cikti_ref="r"
     )
     session.commit()
-    obs = session.execute(select(ObservationRow)).scalars().all()
+    # FİLTRE ŞART: veritabanında başka araştırmalar olabilir (gerçek kullanım,
+    # paralel test). Filtresiz sorgu onların satırlarını da toplar.
+    obs = (
+        session.execute(
+            select(ObservationRow)
+            .join(Entity, Entity.id == ObservationRow.entity_id)
+            .where(Entity.investigation_id == inv_id)
+        )
+        .scalars()
+        .all()
+    )
     assert [o.guven for o in obs] == [95]
 
 
@@ -448,7 +469,13 @@ def test_ingest_iliskileri_cozer(session, inv_id, job):
     ent = _entityler(session, inv_id)
     assert ("domain", "firma.com") in ent  # ilişkiden türedi
 
-    rel = session.execute(select(Relationship)).scalars().one()
+    rel = (
+        session.execute(
+            select(Relationship).where(Relationship.investigation_id == inv_id)
+        )
+        .scalars()
+        .one()
+    )
     assert rel.kaynak_entity_id == ent[("subdomain", "api.firma.com")].id
     assert rel.hedef_entity_id == ent[("domain", "firma.com")].id
     assert rel.tip == "subdomain_of"
@@ -470,7 +497,13 @@ def test_ingest_gelen_yon_kaynak_hedefi_takas_eder(session, inv_id, job):
     session.commit()
 
     ent = _entityler(session, inv_id)
-    rel = session.execute(select(Relationship)).scalars().one()
+    rel = (
+        session.execute(
+            select(Relationship).where(Relationship.investigation_id == inv_id)
+        )
+        .scalars()
+        .one()
+    )
     assert rel.kaynak_entity_id == ent[("cert", "ab" * 32)].id
     assert rel.hedef_entity_id == ent[("subdomain", "api.firma.com")].id
 
@@ -558,7 +591,7 @@ def test_zincirleme_is_kuyruga_girer(session, inv_id, job, registry):
     s = ingest(session, job, [g], spec=SAHTE_SPEC, ham_cikti_ref="r", registry=registry)
     session.commit()
 
-    assert s.kuyruga_alinan == 1
+    assert s.kuyruga_alinan == _domain_tuketen_sayisi(registry)
     yeni = (
         session.execute(
             select(Job).where(Job.investigation_id == inv_id, Job.tool == "subfinder")
@@ -572,8 +605,12 @@ def test_zincirleme_is_kuyruga_girer(session, inv_id, job, registry):
     assert yeni.parent_job_id == job.id
 
 
-def test_subdomain_zincirleme_uretmez(session, inv_id, job, registry):
-    """subfinder SUBDOMAIN tüketmez: sub -> sub döngüsü kurulmaz."""
+def test_subdomain_zincirleme_ikinci_katman(session, inv_id, job, registry):
+    """İKİ KATMANLI ZİNCİR: SUBDOMAIN oluşunca onu tüketen tool'lar kuyruğa girer.
+
+    dns-resolver eklenene kadar SUBDOMAIN tüketen tool yoktu ve bu sayı 0'dı.
+    Sayı yine SABİT YAZILMIYOR, registry'den türetiliyor.
+    """
     s = ingest(
         session,
         job,
@@ -583,7 +620,9 @@ def test_subdomain_zincirleme_uretmez(session, inv_id, job, registry):
         registry=registry,
     )
     session.commit()
-    assert s.kuyruga_alinan == 0
+    beklenen = len(registry.tuketenler(EntityType.SUBDOMAIN))
+    assert s.kuyruga_alinan == beklenen
+    assert beklenen >= 1, "SUBDOMAIN tüketen tool yok — zincir tek katmanlı"
 
 
 def test_uq_job_tekrar_ikinci_kez_engelliyor(session, inv_id, job, registry):
@@ -599,8 +638,8 @@ def test_uq_job_tekrar_ikinci_kez_engelliyor(session, inv_id, job, registry):
     )
     session.commit()
 
-    assert bir.kuyruga_alinan == 1
-    assert iki.kuyruga_alinan == 0
+    assert bir.kuyruga_alinan == _domain_tuketen_sayisi(registry)
+    assert iki.kuyruga_alinan == 0  # ikinci turda HİÇBİRİ yeniden girmez
     sayi = session.scalar(
         select(func.count())
         .select_from(Job)
@@ -615,7 +654,8 @@ def test_ayni_turda_tekrarlanan_varlik_tek_is_uretir(session, inv_id, job, regis
         session, job, gozlemler, spec=SAHTE_SPEC, ham_cikti_ref="r", registry=registry
     )
     session.commit()
-    assert s.kuyruga_alinan == 1
+    # 5 kez tekrarlanan varlık, tool başına TEK iş üretir
+    assert s.kuyruga_alinan == _domain_tuketen_sayisi(registry)
 
 
 def test_max_derinlik_zincirlemeyi_durdurur(session, inv_id, registry):
@@ -690,11 +730,17 @@ def test_subfinder_fixture_ucdan_uca(session, inv_id, job, registry):
     assert s.entity_sayisi == 2 * len(gozlemler)
     assert len(ent) == len(gozlemler) + 1
 
-    # ZİNCİRLEME YOK: gözlemlerin tamamı SUBDOMAIN ve subfinder SUBDOMAIN
-    # tüketmez. example.com DOMAIN olarak yazıldı ama İLİŞKİ HEDEFİ olarak
-    # türedi; ilişki hedefleri zincirlenmez (kök hedef sonsuz yeniden kuyruğa
-    # girerdi). Bkz. app/ingest.py adım 5.
-    assert s.kuyruga_alinan == 0
+    # Gözlemlerin tamamı SUBDOMAIN. Fixture'daki 24 satır normalize sonrası
+    # yalnızca birkaç TEKİL ada düşer; her tekil ad için SUBDOMAIN tüketen her
+    # tool bir kez kuyruğa girer.
+    #
+    # example.com DOMAIN olarak yazıldı ama İLİŞKİ HEDEFİ olarak türedi;
+    # ilişki hedefleri zincirlenmez (kök hedef sonsuz yeniden kuyruğa girerdi).
+    # Bkz. app/ingest.py adım 5.
+    tekil_sub = len({e for (tip, _), e in ent.items() if tip == "subdomain"})
+    assert s.kuyruga_alinan == tekil_sub * len(
+        registry.tuketenler(EntityType.SUBDOMAIN)
+    )
 
 
 def test_gozlem_sayisi_observation_satirlariyla_hizali(session, inv_id, job):

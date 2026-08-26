@@ -1,4 +1,8 @@
-"""Container runner — bir tool'u izole container'da çalıştırır.
+"""Tool koşucuları — bir tool'u çalıştırıp ham çıktısını arşivler.
+
+İki çalıştırma biçimi vardır ve `ToolRunner` aralarında seçim yapar:
+  `docker` → `ContainerRunner`, izole container (subfinder gibi ikililer)
+  `api`    → `ApiRunner`, doğrudan HTTP çağrısı (crt.sh, RDAP, BGP gibi)
 
 `docs/kapsam.md` Bölüm 5.2 sorumluluk sınırı: **adapter bunların hiçbirini
 bilmez.** Timeout uygulama, rate limit, retry/backoff, kota takibi, hata
@@ -12,9 +16,14 @@ bağlı ayar değildir: bu container'lar HEDEFİN KONTROL ETTİĞİ veriyi işle
 
 from __future__ import annotations
 
+import logging
 import os
+import random
+import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -24,7 +33,7 @@ import requests
 from docker.errors import APIError, DockerException, ImageNotFound, NotFound
 
 from app.models import JobStatus
-from app.tools._base import RawResult, ToolSpec
+from app.tools._base import RawResult, ToolConfig, ToolSpec
 
 __all__ = [
     "TOOL_AGI",
@@ -32,8 +41,18 @@ __all__ = [
     "RunnerConfig",
     "RunSonucu",
     "ContainerRunner",
+    "ApiRunner",
+    "ToolRunner",
+    "ham_yaz",
+    "yetki_engeli",
+    "gecici_mi",
+    "GECICI_KODLAR",
+    "KALICI_KODLAR",
+    "HizSinirlayici",
     "varsayilan_raw_kok",
 ]
+
+log = logging.getLogger(__name__)
 
 _KOK = Path(__file__).resolve().parents[1]
 
@@ -89,6 +108,154 @@ def varsayilan_raw_kok() -> Path:
 class RunnerConfig:
     raw_kok: Path = field(default_factory=varsayilan_raw_kok)
     tool_agi: str = TOOL_AGI
+    # Geri çekilme süresine eklenen rastgelelik oranı. Aynı anda kuyruğa giren
+    # işler senkronize retry yapıp sunucuyu dalga dalga dövmesin diye vardır
+    # ("thundering herd"). Testlerde 0.0 verilir ki süreler ölçülebilsin.
+    jitter_orani: float = 0.25
+
+
+def ham_yaz(
+    raw_kok: Path | str, job_id: uuid.UUID | str, icerik: bytes, bicim: str
+) -> str:
+    """`RAW_DIR/{job_id}/output.{bicim}`.
+
+    İlke 2'nin (her bulgu ham çıktısına kadar izlenebilir) altyapısı:
+    `observation.ham_cikti_ref` bu yolu gösterir. Diske yazmak ADAPTER'IN DEĞİL
+    runner'ın işidir; adapter ham baytları döndürmekle yetinir.
+
+    Modül seviyesindedir çünkü hem container hem API koşucusu kullanır —
+    ham çıktı arşivi çalıştırma biçiminden bağımsızdır.
+    """
+    klasor = Path(raw_kok) / str(job_id)
+    klasor.mkdir(parents=True, exist_ok=True)
+    yol = klasor / f"output.{bicim}"
+    yol.write_bytes(icerik)
+    return str(yol)
+
+
+def yetki_engeli(spec: ToolSpec, yetki_onayi: bool) -> RunSonucu | None:
+    """P2/A seviyesi onaysız çalışmaz. Engel yoksa `None`.
+
+    Container ve API koşucularının PAYLAŞTIĞI kontrol. Pasiflik, çalıştırma
+    biçiminin değil tool'un özelliğidir; API üzerinden koşan bir P2 tool da
+    aynı onayı ister.
+    """
+    if spec.yetki_ister() and not yetki_onayi:
+        return RunSonucu(
+            durum=JobStatus.SKIPPED,
+            hata_mesaji=(
+                f"{spec.name} seviyesi {spec.passivity.value}; "
+                "investigation.yetki_onayi isaretli degil"
+            ),
+        )
+    if not spec.etkin:
+        return RunSonucu(
+            durum=JobStatus.SKIPPED, hata_mesaji=f"{spec.name} etkin degil"
+        )
+    return None
+
+
+# --------------------------------------------------------------------------- #
+# Retry sınıflandırması
+# --------------------------------------------------------------------------- #
+
+# GEÇİCİ — tekrar denemeye DEĞER. Ortak özellikleri: hata sunucunun o anki
+# yükünden/sağlığından kaynaklanıyor ve saniyeler içinde kendiliğinden
+# düzelebilir. crt.sh bu oturumda 200 ve 502 arasında dakikalar içinde gidip
+# geldi; tek atışlık istek böyle bir serviste sık boşa düşer.
+GECICI_KODLAR = frozenset(
+    {
+        408,  # Request Timeout — sunucu okumayı bekleyemedi
+        429,  # Too Many Requests — rate limit, beklersek geçer
+        502,  # Bad Gateway
+        503,  # Service Unavailable
+        504,  # Gateway Timeout
+        -1,  # taşıma katmanı: bağlantı kurulamadı / okuma zaman aşımı
+    }
+)
+
+# KALICI — tekrar denemek BOŞUNA ve kabalıktır. Aynı istek aynı cevabı verir.
+#   400 isteğimiz bozuk, 401/403 kimlik/yetki, 404 kaynak yok,
+#   405 yanlış metot, 410 kalıcı olarak gitmiş, 422 içerik reddedildi.
+# 500 BİLİNÇLİ OLARAK LİSTEDE YOK ve geçici SAYILMAZ: sunucu tarafındaki bir
+# hata iki saniyede düzelmez, tekrarlamak yalnızca yükü artırır. Bilinmeyen
+# kodlar da kalıcı kabul edilir — şüphede kalınca hammering yapmamak
+# (pasiflik ilkesiyle tutarlı) doğru varsayılandır.
+KALICI_KODLAR = frozenset({400, 401, 403, 404, 405, 410, 422, 500})
+
+
+def gecici_mi(cikis_kodu: int | None, durum: JobStatus) -> bool:
+    """Bu sonuç tekrar denemeye değer mi?
+
+    TEKRAR DENENMEYENLER (buraya hiç gelmezler, sınır burada çizilir):
+      * SKIPPED — yetki engeli. Onay yokken beş kez denemek de yetki vermez.
+      * parse hatası — `parse()` runner'dan SONRA, worker'da çalışır; bozuk
+        ayrıştırma tool'u tekrar çalıştırmakla düzelmez, adapter düzelmelidir.
+      * kalıcı HTTP kodları — yukarıdaki liste.
+    """
+    if durum is JobStatus.TIMEOUT:
+        # Süre dolduğu için biz kestik: sunucu yavaştı, yine hızlanabilir.
+        return True
+    if durum is JobStatus.SUCCESS:
+        return False
+    if cikis_kodu is None:
+        return False
+    return cikis_kodu in GECICI_KODLAR
+
+
+# --------------------------------------------------------------------------- #
+# Rate limit
+# --------------------------------------------------------------------------- #
+
+
+class HizSinirlayici:
+    """Aynı tool için ardışık istekler arasında asgari bekleme.
+
+    `spec.dakikalik_istek` manifest'ten gelir; 5/dk → istekler arasında en az
+    12 saniye. Token bucket değil, basit aralık koruması: tek worker'da yeterli
+    ve okunması kolay.
+
+    TEK WORKER VARSAYIMI NEREDE KIRILIR
+    ------------------------------------------------------------------
+    Durum SÜREÇ İÇİDİR (`_son` sözlüğü). Şu üç durumda etkin hız, manifest'te
+    yazandan KAT KAT yüksek olur:
+
+      1) `celery worker --concurrency=N` — prefork havuzunda her çocuk süreç
+         kendi sözlüğünü taşır, gerçek hız N × limit olur.
+      2) Birden fazla worker container'ı (`docker compose up --scale worker=N`).
+      3) Worker yeniden başladığında sözlük sıfırlanır; hemen ardından gelen
+         ilk istek beklemeden çıkar.
+
+    Bugün compose'da tek worker ve varsayılan havuz var, o yüzden yeterli.
+    Kalıcı çözüm Redis'te tool başına token bucket'tır (`INCR` + `EXPIRE` ya da
+    kayan pencere) — kota takibiyle (`aylik_kota`) birlikte yazılmalıdır,
+    çünkü ikisi de aynı paylaşılan sayaç altyapısını ister.
+    """
+
+    def __init__(self) -> None:
+        self._son: dict[str, float] = {}
+        self._kilit = threading.Lock()
+
+    def bekleme_suresi(self, tool: str, dakikalik_istek: int | None) -> float:
+        """Kaç saniye beklenmeli? Yeri de rezerve eder (uyku çağırana ait).
+
+        Uykuyu kilidin İÇİNDE tutmayız: bir tool'un beklemesi, başka bir
+        tool'un isteğini bloklamamalı.
+        """
+        if not dakikalik_istek or dakikalik_istek <= 0:
+            return 0.0
+        asgari = 60.0 / dakikalik_istek
+        with self._kilit:
+            simdi = time.monotonic()
+            son = self._son.get(tool)
+            bekleme = 0.0 if son is None else max(0.0, asgari - (simdi - son))
+            # Sıradaki çağıran bu isteğin BİTECEĞİ ana göre beklesin.
+            self._son[tool] = simdi + bekleme
+        return bekleme
+
+    def sifirla(self) -> None:
+        with self._kilit:
+            self._son.clear()
 
 
 @dataclass(frozen=True)
@@ -101,15 +268,24 @@ class RunSonucu:
     cikis_kodu: int | None = None
     sure_ms: int = 0
     hata_mesaji: str | None = None
+    # Kaç kez denendi. 1 = ilk denemede oldu. Analist bir işin 3 kez denenip
+    # düştüğünü görmelidir; job satırına ve arayüze yansır.
+    deneme: int = 1
 
 
 class ContainerRunner:
     """Tool'u izole container'da çalıştırır ve ham çıktıyı arşivler."""
 
-    def __init__(self, cfg: RunnerConfig | None = None, client: Any = None) -> None:
+    def __init__(
+        self,
+        cfg: RunnerConfig | None = None,
+        client: Any = None,
+        hiz: HizSinirlayici | None = None,
+    ) -> None:
         self.cfg = cfg or RunnerConfig()
         self._client = client
         self._ag: Any = None
+        self._hiz = hiz or HizSinirlayici()
 
     # -- docker istemcisi --------------------------------------------------- #
 
@@ -196,17 +372,7 @@ class ContainerRunner:
     # -- ham çıktı arşivi --------------------------------------------------- #
 
     def _ham_yaz(self, job_id: uuid.UUID | str, icerik: bytes, bicim: str) -> str:
-        """`RAW_DIR/{job_id}/output.{bicim}`.
-
-        İlke 2'nin (her bulgu ham çıktısına kadar izlenebilir) altyapısı:
-        `observation.ham_cikti_ref` bu yolu gösterir. Diske yazmak ADAPTER'IN
-        DEĞİL runner'ın işidir; adapter ham baytları döndürmekle yetinir.
-        """
-        klasor = Path(self.cfg.raw_kok) / str(job_id)
-        klasor.mkdir(parents=True, exist_ok=True)
-        yol = klasor / f"output.{bicim}"
-        yol.write_bytes(icerik)
-        return str(yol)
+        return ham_yaz(self.cfg.raw_kok, job_id, icerik, bicim)
 
     # -- ana giriş ---------------------------------------------------------- #
 
@@ -229,19 +395,9 @@ class ContainerRunner:
         #    Bu kontrolün arayüzde değil BURADA olmasının sebebi: arayüz
         #    atlanabilir (API doğrudan çağrılabilir, iş kuyruğa elle
         #    eklenebilir). Kontrol, işi gerçekten başlatan tek noktada durur.
-        if spec.yetki_ister() and not yetki_onayi:
-            return RunSonucu(
-                durum=JobStatus.SKIPPED,
-                hata_mesaji=(
-                    f"{spec.name} seviyesi {spec.passivity.value}; "
-                    "investigation.yetki_onayi isaretli degil"
-                ),
-            )
-
-        if not spec.etkin:
-            return RunSonucu(
-                durum=JobStatus.SKIPPED, hata_mesaji=f"{spec.name} etkin degil"
-            )
+        engel = yetki_engeli(spec, yetki_onayi)
+        if engel is not None:
+            return engel
 
         if not spec.image:
             return RunSonucu(
@@ -249,15 +405,34 @@ class ContainerRunner:
                 hata_mesaji=f"{spec.name} icin spec.image tanimsiz",
             )
 
-        # BURAYA GELECEK — rate limit ve retry (bu parçada YAZILMADI):
-        #   * `spec.dakikalik_istek` -> Redis'te tool başına token bucket;
-        #     kota dolmuşsa beklenir, beklemek işi geciktirecekse
-        #     JobStatus.SKIPPED dönülür.
-        #   * `spec.aylik_kota` -> aylık sayaç; aşıldıysa çalıştırmadan SKIPPED.
-        #   * retry/backoff -> yalnızca GEÇİCİ hatalar (ağ, 5xx, TIMEOUT) için,
-        #     üstel bekleme ile. Kalıcı hatalar (ImageNotFound, kimlik
-        #     doğrulama) tekrarlanmaz.
-        # Üçü de runner'ın sorumluluğudur; adapter'a sızmamalıdır.
+        # RATE LIMIT container yolunda DA uygulanır: subfinder de üçüncü taraf
+        # kaynakları sorgular, nazik davranma borcu çalıştırma biçimine göre
+        # değişmez.
+        bekleme = self._hiz.bekleme_suresi(spec.name, spec.dakikalik_istek)
+        if bekleme > 0:
+            log.info("%s: hız sınırı, %.1f sn bekleniyor", spec.name, bekleme)
+            time.sleep(bekleme)
+
+        # RETRY BURADA YOK — BİLİNÇLİ KARAR
+        # ------------------------------------------------------------------
+        # Retry, hatayı GEÇİCİ ve KALICI diye ayırabildiğimiz yerde işe yarar.
+        # Container yolunda bu ayrım yapılamaz:
+        #
+        #   1) Çıkış kodu tool'a özgüdür. subfinder'ın `exit 1`'i "sonuç yok"
+        #      da olabilir "DNS çözülemedi" de. Kör tekrar, dakikalar süren bir
+        #      taramayı boşuna ikinci kez koşturur.
+        #   2) TIMEOUT'ta tekrar denemek maliyeti katlar, başarı olasılığı
+        #      düşüktür: tool kendi bütçesinde bitiremediyse ikinci seferde de
+        #      bitiremez.
+        #   3) Retry'ın gerçekten yardımcı olduğu hatalar (429, 502, 503, 504,
+        #      kopan bağlantı) HTTP kavramlarıdır ve yalnızca API yolunda vardır.
+        #
+        # `ImageNotFound` gibi kalıcı hatalar zaten tekrarlanmamalı. Container
+        # tarafında tekrar denemeye değecek tek şey daemon'ın anlık meşguliyeti
+        # olurdu; ölçülmüş bir sorun değil, spekülatif karmaşıklık eklemiyoruz.
+        #
+        # `spec.aylik_kota` hâlâ uygulanmıyor: paylaşılan sayaç ister, Redis
+        # tabanlı token bucket ile birlikte yazılacak.
 
         return self._container_calistir(spec, hedef, job_id, komut, cikti_formati)
 
@@ -401,4 +576,283 @@ class ContainerRunner:
             cikis_kodu=cikis_kodu,
             sure_ms=sure_ms,
             hata_mesaji=hata,
+        )
+
+
+# --------------------------------------------------------------------------- #
+# API koşucusu — `calistirma: "api"`
+# --------------------------------------------------------------------------- #
+
+
+class ApiRunner:
+    """Üçüncü taraf HTTP API'sini sorgulayan tool'ları çalıştırır.
+
+    NEDEN AYRI BİR KOŞUCU
+    ------------------------------------------------------------------
+    `calistirma: "api"` olan tool'un container'ı yoktur: crt.sh, RDAP ve BGP
+    sorguları yalnızca bir HTTP isteğidir, uğruna imaj inşa etmek anlamsızdır.
+    Ama RUNNER SORUMLULUKLARI aynen geçerlidir — timeout, ham çıktı arşivi,
+    pasiflik kontrolü, hata izolasyonu. Bu sınıf onları container yerine
+    adapter'ın `calistir()` çağrısı etrafında uygular.
+
+    Container koşucusundan tek FARKI izolasyon derecesidir ve bu bilinçlidir:
+    API tool'u worker sürecinde koşar, ayrı bir çekirdek ad alanında değil.
+    Karşılığında hedefe hiç dokunmaz (P0) ve işlediği veri kendi ürettiği HTTP
+    yanıtıdır. Ham yanıtın modele gitmesi hâlâ yasaktır — `parse()` onu
+    gözlemlere indirger, `<untrusted_data>` sınırı AI katmanında uygulanır.
+    """
+
+    def __init__(
+        self, cfg: RunnerConfig | None = None, hiz: HizSinirlayici | None = None
+    ) -> None:
+        self.cfg = cfg or RunnerConfig()
+        # Süreç ömrü boyunca paylaşılır; sınırları HizSinirlayici docstring'inde.
+        self._hiz = hiz or HizSinirlayici()
+
+    def _cfg_kur(self, spec: ToolSpec) -> ToolConfig:
+        """Adapter `os.environ`'a bakmaz; anahtarları runner seçip verir.
+
+        Yalnızca `spec.auth_env`'de İSTENEN değişkenler geçirilir — bir tool
+        başka bir tool'un anahtarını göremez.
+        """
+        return ToolConfig(
+            env={ad: os.environ[ad] for ad in spec.auth_env if ad in os.environ},
+            proxy=os.getenv("HTTPS_PROXY") or os.getenv("HTTP_PROXY"),
+        )
+
+    def calistir(
+        self,
+        adapter: Any,
+        hedef: str,
+        job_id: uuid.UUID | str,
+        *,
+        yetki_onayi: bool = False,
+        cikti_formati: str = "json",
+    ) -> RunSonucu:
+        """Adapter'ı rate limit + retry ile çalıştırır, çıktıyı arşivler.
+
+        İSTİSNA FIRLATMAZ: bozuk bir API yanıtı ya da düşmüş bir servis turu
+        değil yalnızca bu işi düşürür.
+        """
+        spec: ToolSpec = adapter.spec
+        engel = yetki_engeli(spec, yetki_onayi)
+        if engel is not None:
+            # Yetki engeli tekrar DENENMEZ: onay yokken beş kez denemek de
+            # onay üretmez. Deneme sayacı da artmaz, çünkü hiç denenmedi.
+            return engel
+
+        basla = time.monotonic()
+        butce = spec.toplam_butce_sn()
+        sonuc: RunSonucu | None = None
+
+        for deneme in range(1, max(1, spec.max_deneme) + 1):
+            # RATE LIMIT — her denemeden önce. Retry'ın kendisi de bir istektir;
+            # 429 yiyip hemen tekrar vurmak sorunu büyütür.
+            bekleme = self._hiz.bekleme_suresi(spec.name, spec.dakikalik_istek)
+            if bekleme > 0:
+                log.info("%s: hız sınırı, %.1f sn bekleniyor", spec.name, bekleme)
+                time.sleep(bekleme)
+
+            sonuc = self._tek_deneme(adapter, hedef, job_id, cikti_formati, deneme)
+
+            if not gecici_mi(sonuc.cikis_kodu, sonuc.durum):
+                return sonuc  # başarılı ya da kalıcı hata — bitti
+            if deneme >= spec.max_deneme:
+                break
+
+            # TOPLAM BÜTÇE KONTROLÜ. `timeout_sn` tek deneme içindir; kuyrukta
+            # bekleyen işleri koruyan tavan budur. Bir sonraki deneme + bekleme
+            # bütçeye sığmıyorsa retry'dan VAZGEÇİLİR — yarım kalacağı belli
+            # olan bir denemeyi başlatmak yalnızca zaman yakar.
+            gecen = time.monotonic() - basla
+            gecikme = self._gecikme(spec, deneme)
+            # Bütçe bir SON TARİHTİR: geçtiyse YENİ deneme başlatılmaz.
+            # Bir sonraki deneme için tam `timeout_sn` kadar yer aramayız —
+            # öyle yapılırsa en kötü hâl bütçeye tıpatıp eşit olduğu için son
+            # deneme HER ZAMAN iptal edilir ve `max_deneme` bir eksik çalışır.
+            # Bedeli: başlamış bir deneme bitene kadar sürebildiği için gerçek
+            # süre bütçeyi en fazla bir `timeout_sn` kadar aşabilir.
+            if gecen + gecikme >= butce:
+                log.warning(
+                    "%s: toplam bütçe (%.0f sn) doldu, %d. denemeden sonra durdu",
+                    spec.name,
+                    butce,
+                    deneme,
+                )
+                break
+
+            log.info(
+                "%s: geçici hata (kod=%s), %.1f sn sonra %d. deneme",
+                spec.name,
+                sonuc.cikis_kodu,
+                gecikme,
+                deneme + 1,
+            )
+            time.sleep(gecikme)
+
+        return sonuc if sonuc is not None else RunSonucu(durum=JobStatus.FAILED)
+
+    def _gecikme(self, spec: ToolSpec, deneme: int) -> float:
+        """Üstel geri çekilme + jitter.
+
+        JITTER NEDEN ŞART: aynı anda kuyruğa giren on iş, aynı anda 502 yiyip
+        aynı anda 2 saniye bekler ve aynı anda tekrar vurur. Sunucu dalga dalga
+        dövülür ("thundering herd") ve iyileşmesi zorlaşır. Rastgelelik
+        denemeleri zamana yayar.
+        """
+        taban = spec.geri_cekilme(deneme)
+        oran = max(0.0, self.cfg.jitter_orani)
+        if oran == 0.0:
+            return taban
+        return taban * (1.0 + random.uniform(-oran, oran))
+
+    def _tek_deneme(
+        self,
+        adapter: Any,
+        hedef: str,
+        job_id: uuid.UUID | str,
+        cikti_formati: str,
+        deneme: int,
+    ) -> RunSonucu:
+        """Tek çağrı: süreli çalıştır, çıktıyı arşivle, sonucu sınıflandır."""
+        spec: ToolSpec = adapter.spec
+        baslangic = time.monotonic()
+        ham: RawResult | None = None
+        hata: str | None = None
+        durum = JobStatus.SUCCESS
+        tasima_hatasi = False
+
+        # TIMEOUT'U RUNNER UYGULAR, adapter'a güvenilmez. Adapter kendi
+        # httpx timeout'unu unutsa ya da yanlış verse bile iş burada kesilir.
+        # SINIRI: Python thread'i dışarıdan öldürülemez; süre dolduğunda iş
+        # TIMEOUT sayılır ve sonucu atılır, arkadaki istek kendi hâlinde biter.
+        # Container yolundaki `kill()` kadar kesin değildir — API tool'unun
+        # bırakabileceği tek iz açık bir soket olduğu için kabul edilebilir.
+        havuz = ThreadPoolExecutor(max_workers=1)
+        try:
+            gorev = havuz.submit(adapter.calistir, hedef, self._cfg_kur(spec))
+            try:
+                ham = gorev.result(timeout=spec.timeout_sn)
+            except FuturesTimeout:
+                durum = JobStatus.TIMEOUT
+                hata = f"timeout: {spec.timeout_sn} sn asildi"
+                gorev.cancel()
+            except OSError as e:
+                # ConnectionError, TimeoutError ve soket hataları OSError
+                # altındadır: bunlar TAŞIMA katmanı arızasıdır, geçicidir.
+                # RawResult sözleşmesindeki -1 ile aynı anlama gelir.
+                # (Adapter'ın tercih edilen davranışı zaten istisna fırlatmak
+                # değil -1 döndürmektir; bu dal onu unutan adapter'ı kurtarır.)
+                durum = JobStatus.FAILED
+                tasima_hatasi = True
+                hata = f"{type(e).__name__}: {e}"[:_HATA_SINIRI]
+            except Exception as e:  # noqa: BLE001 — hata izolasyonu
+                # Taşıma dışı istisna = adapter hatası. Tekrar denemek düzeltmez.
+                durum = JobStatus.FAILED
+                hata = f"{type(e).__name__}: {e}"[:_HATA_SINIRI]
+        finally:
+            havuz.shutdown(wait=False)
+
+        sure_ms = int((time.monotonic() - baslangic) * 1000)
+
+        if ham is not None and ham.cikis_kodu != 0:
+            # Adapter HTTP hatasını çıkış kodu olarak bildirdi (ör. crt.sh 502).
+            durum = JobStatus.FAILED
+            hata = hata or f"tool cikis kodu {ham.cikis_kodu}"
+
+        # Ham çıktı BAŞARISIZ durumda da yazılır: 502 gövdesi bile
+        # "bu iş neden düştü" sorusunun kanıtıdır (İlke 2). Son deneme neyse
+        # arşivde o kalır; her deneme bir öncekinin üzerine yazar.
+        ham_ref: str | None = None
+        icerik = ham.icerik if ham is not None else b""
+        try:
+            ham_ref = ham_yaz(self.cfg.raw_kok, job_id, icerik, cikti_formati)
+        except OSError as e:
+            hata = f"{hata or ''} | ham cikti yazilamadi: {e}".strip(" |")
+
+        if deneme > 1 and hata:
+            hata = f"{deneme}. deneme: {hata}"
+
+        return RunSonucu(
+            durum=durum,
+            ham=RawResult(
+                icerik=icerik,
+                format=(ham.format if ham is not None else cikti_formati),
+                cikis_kodu=(ham.cikis_kodu if ham is not None else -1),
+                sure_ms=sure_ms,
+                meta={"ham_cikti_ref": ham_ref},
+            ),
+            ham_cikti_ref=ham_ref,
+            cikis_kodu=(
+                ham.cikis_kodu
+                if ham is not None
+                else (-1 if tasima_hatasi else None)
+            ),
+            sure_ms=sure_ms,
+            hata_mesaji=hata,
+            deneme=deneme,
+        )
+
+
+# --------------------------------------------------------------------------- #
+# Dağıtıcı
+# --------------------------------------------------------------------------- #
+
+
+class ToolRunner:
+    """`spec.calistirma` alanına bakıp doğru koşucuyu seçer.
+
+    Çağıran (worker) hangi tool'un container'da hangisinin API üzerinden
+    koştuğunu BİLMEZ. Yeni bir çalıştırma biçimi eklendiğinde değişecek tek
+    yer burasıdır; worker ve arayüz dokunulmadan kalır.
+    """
+
+    def __init__(
+        self,
+        cfg: RunnerConfig | None = None,
+        client: Any = None,
+        hiz: HizSinirlayici | None = None,
+    ) -> None:
+        self.cfg = cfg or RunnerConfig()
+        # TEK sınırlayıcı: aynı tool iki yoldan da koşsa hız sınırı ortak kalır.
+        self.hiz = hiz or HizSinirlayici()
+        self.container = ContainerRunner(self.cfg, client=client, hiz=self.hiz)
+        self.api = ApiRunner(self.cfg, hiz=self.hiz)
+
+    def calistir(
+        self,
+        adapter: Any,
+        hedef: str,
+        job_id: uuid.UUID | str,
+        *,
+        yetki_onayi: bool = False,
+        komut: list[str] | None = None,
+        cikti_formati: str = "json",
+    ) -> RunSonucu:
+        bicim = getattr(adapter, "cikti_formati", cikti_formati)
+        calistirma = adapter.spec.calistirma
+
+        if calistirma == "docker":
+            return self.container.calistir(
+                adapter.spec,
+                hedef,
+                job_id,
+                yetki_onayi=yetki_onayi,
+                komut=komut,
+                cikti_formati=bicim,
+            )
+        if calistirma == "api":
+            return self.api.calistir(
+                adapter,
+                hedef,
+                job_id,
+                yetki_onayi=yetki_onayi,
+                cikti_formati=bicim,
+            )
+        return RunSonucu(
+            durum=JobStatus.FAILED,
+            hata_mesaji=(
+                f"{adapter.spec.name}: bilinmeyen calistirma bicimi "
+                f"{calistirma!r} (beklenen: docker | api)"
+            ),
         )

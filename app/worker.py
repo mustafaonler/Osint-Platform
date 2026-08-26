@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 from app.db import SessionLocal
 from app.ingest import ingest
 from app.models import Investigation, Job, JobStatus
-from app.runner import ContainerRunner, RunSonucu
+from app.runner import RunSonucu, ToolRunner
 from app.tools._base import RawResult, ToolAdapter, ToolRegistry
 
 load_dotenv()
@@ -43,7 +43,7 @@ celery_app.conf.update(
 )
 
 _registry: ToolRegistry | None = None
-_runner: ContainerRunner | None = None
+_runner: ToolRunner | None = None
 
 
 def registry() -> ToolRegistry:
@@ -54,10 +54,15 @@ def registry() -> ToolRegistry:
     return _registry
 
 
-def runner() -> ContainerRunner:
+def runner() -> ToolRunner:
+    """`spec.calistirma` alanına bakıp container ya da API yolunu seçen dağıtıcı.
+
+    Worker hangi tool'un nasıl koştuğunu BİLMEZ; yeni bir çalıştırma biçimi
+    eklendiğinde burası değil `ToolRunner` değişir.
+    """
     global _runner
     if _runner is None:
-        _runner = ContainerRunner()
+        _runner = ToolRunner()
     return _runner
 
 
@@ -138,7 +143,7 @@ def _job_calistir(job_id: uuid.UUID) -> dict:
         # 3) Container'da çalıştır. Yetki kontrolü RUNNER'da yapılır —
         #    arayüz atlanabilir, runner atlanamaz.
         sonuc: RunSonucu = runner().calistir(
-            adapter.spec,
+            adapter,
             job.hedef_deger,
             job.id,
             yetki_onayi=bool(inv.yetki_onayi),
@@ -161,6 +166,7 @@ def _job_calistir(job_id: uuid.UUID) -> dict:
             hata=sonuc.hata_mesaji,
             cikis_kodu=sonuc.cikis_kodu,
             sure_ms=sonuc.sure_ms,
+            deneme=sonuc.deneme,
             ozet=ozet,
         )
 
@@ -205,6 +211,7 @@ def _bitir(
     hata: str | None = None,
     cikis_kodu: int | None = None,
     sure_ms: int | None = None,
+    deneme: int = 0,
     ozet=None,
 ) -> dict:
     job.durum = durum.value
@@ -212,12 +219,14 @@ def _bitir(
     job.hata_mesaji = (hata or None) and hata[:2000]
     job.cikis_kodu = cikis_kodu
     job.sure_ms = sure_ms
+    job.deneme_sayisi = deneme
     session.commit()
     return {
         "job_id": str(job.id),
         "tool": job.tool,
         "hedef": job.hedef_deger,
         "durum": durum.value,
+        "deneme": job.deneme_sayisi,
         "gozlem": ozet.observation_sayisi if ozet else 0,
         "kuyruga_alinan": ozet.kuyruga_alinan if ozet else 0,
     }
