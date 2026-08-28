@@ -195,11 +195,82 @@ auth:
   gerekli: true
   env: [CENSYS_API_ID, CENSYS_API_SECRET]
 limitler:
-  timeout_sn: 60
+  timeout_sn: 60             # TEK DENEME icin (bkz. asagida)
   dakikalik_istek: 10
   aylik_kota: 250
+  max_deneme: 3              # istege bagli, varsayilan 3
+  geri_cekilme_sn: 2.0       # istege bagli, varsayilan 2.0 (ustel: 2, 4, 8)
 etkin: true
 ```
+
+`limitler` bloğundaki alanların hepsi **isteğe bağlıdır**; yazılmayan alan için
+`ToolSpec` varsayılanı geçerlidir. Yazılmışsa adapter'daki `ToolSpec` ile
+**tutmak zorundadır** — registry uyuşmazlıkta `ToolYuklemeHatasi` fırlatır.
+İki doğruluk kaynağının sessizce kayması, hiç kontrol etmemekten daha
+tehlikelidir: registry bir şey, runner başka bir şey görür.
+
+**`timeout_sn` TEK DENEME içindir, toplam değil.**
+Toplam bütçe `ToolSpec.toplam_butce_sn()` ile hesaplanır:
+
+```
+toplam_butce_sn = timeout_sn × max_deneme + Σ geri çekilmeler
+```
+
+Örnek (crtsh): `45 × 3 + (2 + 4) = 141 sn`.
+
+Alternatif — `timeout_sn`'i toplam saymak — sessiz bir tuzaktır: `max_deneme`
+3'e çıkınca tek çağrının etkin süresi 45 sn'den 15 sn'ye **düşer** ve manifest'te
+"timeout_sn: 45" yazan tool yazarı bunu beklemez. Bir alanın anlamının başka bir
+alanın değerine göre değişmesi kötü sözleşmedir.
+
+Toplam bütçe bir **son tarihtir**: süre dolduysa yeni deneme başlatılmaz.
+Başlamış bir deneme kesilmez, dolayısıyla gerçek süre bütçeyi en fazla bir
+`timeout_sn` kadar aşabilir.
+
+**`calistirma` alanının iki yolu da uygulanmıştır:**
+
+| Değer | Koşucu | Kullanım |
+|-------|--------|----------|
+| `docker` | `ContainerRunner` | Bir ikilinin izole container'da koşması (subfinder) |
+| `api` | `ApiRunner` | Doğrudan HTTP/kütüphane çağrısı (crtsh, dns-resolver) |
+
+`ToolRunner` `spec.calistirma`'ya bakıp seçer; worker hangi tool'un nasıl
+koştuğunu bilmez. Tek bir HTTP isteği için imaj inşa etmek anlamsız olduğundan
+API yolu ayrı bir koşucu olarak vardır — ama runner sorumlulukları (timeout,
+ham çıktı arşivi, pasiflik kontrolü, hata izolasyonu, rate limit) her iki yolda
+da **aynen** uygulanır.
+
+**RETRY YALNIZCA `api` YOLUNDA VARDIR.** Rate limit ikisinde de vardır.
+
+Gerekçe: retry, hatayı geçici ve kalıcı diye ayırabildiğimiz yerde işe yarar.
+Container yolunda bu ayrım yapılamaz —
+
+1. **Çıkış kodu tool'a özgüdür.** subfinder'ın `exit 1`'i "sonuç yok" da olabilir
+   "DNS çözülemedi" de. Kör tekrar, dakikalar süren bir taramayı boşuna ikinci
+   kez koşturur.
+2. **TIMEOUT'ta tekrar denemek maliyeti katlar**, başarı olasılığı düşüktür:
+   tool kendi bütçesinde bitiremediyse ikinci seferde de bitiremez.
+3. Retry'ın gerçekten yardımcı olduğu hatalar (429, 502, 503, 504, kopan
+   bağlantı) **HTTP kavramlarıdır** ve yalnızca API yolunda vardır.
+
+Rate limit ise çalıştırma biçiminden bağımsızdır: subfinder da üçüncü taraf
+kaynakları sorgular, nazik davranma borcu değişmez.
+
+**Retry sınıflandırması** (`app/runner.py`):
+
+| Sonuç | Tekrar denenir mi | Gerekçe |
+|-------|-------------------|---------|
+| 408, 429, 502, 503, 504 | Evet | Sunucunun anlık sağlığı; saniyeler içinde düzelebilir |
+| Taşıma hatası (`cikis_kodu = -1`) | Evet | Bağlantı kurulamadı / okuma zaman aşımı |
+| TIMEOUT | Evet | Yavaş sunucu hızlanabilir |
+| 400, 401, 403, 404, 405, 410, 422 | Hayır | Aynı istek aynı cevabı verir |
+| 500 | Hayır | Sunucu hatası iki saniyede düzelmez; tekrarlamak yükü artırır |
+| Bilinmeyen kod | Hayır | Şüphede kalınca hammering yapılmaz — pasiflik ilkesiyle tutarlı |
+| SKIPPED (yetki engeli) | Hayır | Onay yokken beş kez denemek de onay üretmez |
+| `parse()` hatası | Hayır | Runner'dan sonra olur; tool'u tekrar koşturmak düzeltmez |
+
+Geri çekilmeye **jitter** eklenir (varsayılan ±%25): aynı anda kuyruğa giren
+işler senkronize retry yapıp sunucuyu dalga dalga dövmesin.
 
 **adapter.py sözleşmesi:**
 
@@ -221,6 +292,8 @@ class ToolAdapter(Protocol):
 
 **Runner'ın sorumlulukları (adapter bunları bilmez):** timeout uygulama, rate limit (manifest'ten okunur), retry/backoff, kota takibi, hata izolasyonu, ham çıktıyı diske yazma, pasiflik seviyesi kontrolü.
 
+Bunlardan **kota takibi (`aylik_kota`) henüz uygulanmamıştır**; paylaşılan bir sayaç gerektirdiği için Redis tabanlı token bucket ile birlikte yazılacaktır. Rate limit bugün süreç içi durumla çalışır: `--concurrency=N`, birden fazla worker container'ı veya worker yeniden başlaması durumunda etkin hız manifest'te yazandan yüksek olur.
+
 **Yeni tool ekleme prosedürü:**
 1. Klasör aç, `manifest.yaml` yaz
 2. `adapter.py`'de `calistir` + `parse` uygula
@@ -232,7 +305,53 @@ class ToolAdapter(Protocol):
 ## 6. Tool Yol Haritası
 
 ### v1 — Çekirdek (7 adet)
-Bölüm 3.3'teki liste. Bunlar eklenti sistemini de doğrulayan referans implementasyonlardır.
+
+Bölüm 3.3'teki liste. Bunlar eklenti sistemini de doğrulayan referans
+implementasyonlardır.
+
+**Durum: 4/7 tamam.**
+
+| Tool | Seviye | Çalıştırma | Girdi | Ürettiği | Durum |
+|------|--------|-----------|-------|----------|-------|
+| `subfinder` | P0 | docker | DOMAIN | SUBDOMAIN | ✅ Hafta 2 |
+| `crtsh` | P0 | api | DOMAIN | SUBDOMAIN, CERT | ✅ Hafta 3 |
+| `dns-resolver` | P1 | api | DOMAIN, SUBDOMAIN | IP, SUBDOMAIN, TECH, ORG | ✅ Hafta 3 |
+| `whois-rdap` | P0 | api | DOMAIN, IP, NETBLOCK | ORG, SUBDOMAIN, NETBLOCK, ASN | ✅ Hafta 3 |
+| `asn-bgp` | P0 | api | IP, ASN | ASN, NETBLOCK, ORG | ⬜ sırada |
+| `theharvester` | P0 | docker | DOMAIN | EMAIL, SUBDOMAIN | ⬜ |
+| `shodan-lookup` | P0 | api | IP | SERVICE, TECH | ⬜ (API key) |
+
+**Yetenek grafiğinin bugünkü hâli** — hiçbir zincirleme kuralı elle yazılmadı,
+tamamı manifest'lerdeki `kabul_eder` / `uretir` alanlarından türedi:
+
+```
+DOMAIN    → crtsh, dns-resolver, subfinder, whois-rdap
+SUBDOMAIN → dns-resolver
+IP        → whois-rdap
+NETBLOCK  → whois-rdap
+```
+
+Zincir şu an **üç katmanlı**: `DOMAIN → SUBDOMAIN → IP → NETBLOCK/ORG`.
+`asn-bgp` eklendiğinde ASN katmanı da açılır.
+
+**Tool ekleme maliyeti (ölçüldü):**
+
+| Tool | Süre | Çekirdek dosya | Sebep |
+|------|------|----------------|-------|
+| `crtsh` | 68 dk | 3 (`runner`, `worker`, `normalize`) | `ApiRunner` hiç yoktu; CERT kimlik kuralı crt.sh verisiyle uyumsuzdu |
+| `dns-resolver` | 15 dk | 1 (`_base`, tek satır) | `RelationType`'a `CNAME_FOR` eklendi |
+| `whois-rdap` | **8 dk** | **0** | Hiçbir yeni altyapı gerekmedi |
+
+Hafta 3 kriteri ("yeni tool 1 saatten kısa sürede eklenebiliyor") `dns-resolver`
+ile **sağlanmıştır**. `crtsh`'ın 68 dakikasının ~50'si bir kerelik altyapı
+borcuydu (API koşucusu, retry, rate limit) ve bir daha ödenmeyecektir.
+
+`CNAME_FOR` eklemesi bir mimari eksiklik DEĞİLDİR: `RelationType` ve
+`EntityType` **paylaşılan sözlüktür**, tool'a özel değildir. İki tool'un
+"resolves_to" ile aynı şeyi kastetmesi gerekir, yoksa korelasyon katmanı
+çalışamaz. Gerçekten yeni bir ilişki türü getiren bir tool'un bilinçli bir
+çekirdek düzenlemesi gerektirmesi doğrudur; alternatifi her tool'un kendi
+kelimesini uydurmasıdır.
 
 ### v1.1 — Eklenti sistemi oturduktan sonra (her biri ~30-60 dk)
 

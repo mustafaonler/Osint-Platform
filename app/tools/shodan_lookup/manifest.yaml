@@ -1,0 +1,34 @@
+# docs/kapsam.md Bolum 5.2 manifest semasi.
+name: shodan-lookup
+version: "1.0"
+
+# P0 - KRITIK AYRIM: Shodan'in MEVCUT INDEKSI sorgulanir, hedefe tarama
+# YAPILMAZ. Trafik biz -> api.shodan.io yonundedir; hedefin sunucusuna tek
+# paket gitmez. Gerekce adapter.py modul docstring'inde.
+passivity: P0
+
+kabul_eder: [IP]
+uretir: [SERVICE, TECH, ORG]
+
+calistirma: api
+image: null
+
+auth:
+  # ZORUNLU: anahtarsiz bu tool HIC calisamaz. subfinder'in opsiyonel
+  # anahtarindan farki budur - runner buna bakip SKIPPED doner.
+  gerekli: true
+  env: [SHODAN_API_KEY]
+
+limitler:
+  timeout_sn: 30
+  # Ucretsiz katman 1 istek/saniye.
+  dakikalik_istek: 60
+  # HENUZ UYGULANMADI (paylasilan sayac gerekir). Deger dursun ki
+  # uygulandiginda yeri hazir olsun.
+  aylik_kota: 100
+
+# Indeks verisi ESKI OLABILIR: Shodan bir portu alti ay once gormus ve bugun
+# kapali olabilir. Otoriter kaynaklarin (90) altinda.
+varsayilan_guven: 75
+
+etkin: true

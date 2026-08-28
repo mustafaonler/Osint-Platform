@@ -1,0 +1,385 @@
+{
+ "region_code": "HE",
+ "tags": [],
+ "ip": 2354215172,
+ "area_code": null,
+ "domains": [
+  "github.com"
+ ],
+ "hostnames": [
+  "lb-140-82-121-4-fra.github.com",
+  "github.com",
+  "www.github.com"
+ ],
+ "country_code": "DE",
+ "org": "GitHub, Inc.",
+ "data": [
+  {
+   "info": "protocol 2.0",
+   "asn": "AS36459",
+   "hash": 148890323,
+   "os": null,
+   "timestamp": "2026-08-26T07:42:59.896952",
+   "isp": "GitHub, Inc.",
+   "transport": "tcp",
+   "ip_str": "140.82.121.4",
+   "_shodan": {
+    "region": "na",
+    "module": "ssh",
+    "ptr": true,
+    "options": {},
+    "id": "c2b6669e-d406-4312-a4a2-d183645149f6",
+    "crawler": "f33d80a7ca4b7417d1867303f3af6b398f76f284"
+   },
+   "hostnames": [
+    "lb-140-82-121-4-fra.github.com"
+   ],
+   "location": {
+    "city": "Frankfurt am Main",
+    "region_code": "HE",
+    "area_code": null,
+    "longitude": 8.68417,
+    "latitude": 50.11552,
+    "country_code": "DE",
+    "country_name": "Germany"
+   },
+   "ip": 2354215172,
+   "domains": [
+    "github.com"
+   ],
+   "org": "GitHub, Inc.",
+   "data": "SSH-2.0-20b2056\nKey type: ssh-rsa\nKey: AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aN\nUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWz\nAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlh\nScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFP\nGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYi\nrYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOx\nJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs\n+p1vN1/wsjk=\nFingerprint: d5:2c:63:d9:bc:75:9d:de:b1:4e:36:28:9f:7a:9c:39\n\nKex Algorithms:\n\tsntrup761x25519-sha512\n\tsntrup761x25519-sha512@openssh.com\n\tcurve25519-sha256\n\tcurve25519-sha256@libssh.org\n\tecdh-sha2-nistp256\n\tecdh-sha2-nistp384\n\tecdh-sha2-nistp521\n\tdiffie-hellman-group-exchange-sha256\n\tkex-strict-s-v00@openssh.com\n\nServer Host Key Algorithms:\n\tssh-ed25519\n\tecdsa-sha2-nistp256\n\trsa-sha2-512\n\trsa-sha2-256\n\tssh-rsa\n\nEncryption Algorithms:\n\tchacha20-poly1305@openssh.com\n\taes256-gcm@openssh.com\n\taes128-gcm@openssh.com\n\taes256-ctr\n\taes192-ctr\n\taes128-ctr\n\nMAC Algorithms:\n\thmac-sha2-512-etm@openssh.com\n\thmac-sha2-256-etm@openssh.com\n\thmac-sha2-512\n\thmac-sha2-256\n\nCompression Algorithms:\n\tnone\n\tzlib@openssh.com\n",
+   "port": 22,
+   "opts": {},
+   "ssh": {
+    "type": "ssh-rsa",
+    "fingerprint": "d5:2c:63:d9:bc:75:9d:de:b1:4e:36:28:9f:7a:9c:39",
+    "mac": "hmac-sha2-256",
+    "cipher": "aes128-ctr",
+    "key": "AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aN\nUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWz\nAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlh\nScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFP\nGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYi\nrYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOx\nJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs\n+p1vN1/wsjk=\n",
+    "kex": {
+     "unused": 0,
+     "server_host_key_algorithms": [
+      "ssh-ed25519",
+      "ecdsa-sha2-nistp256",
+      "rsa-sha2-512",
+      "rsa-sha2-256",
+      "ssh-rsa"
+     ],
+     "encryption_algorithms": [
+      "chacha20-poly1305@openssh.com",
+      "aes256-gcm@openssh.com",
+      "aes128-gcm@openssh.com",
+      "aes256-ctr",
+      "aes192-ctr",
+      "aes128-ctr"
+     ],
+     "kex_follows": false,
+     "languages": [
+      ""
+     ],
+     "kex_algorithms": [
+      "sntrup761x25519-sha512",
+      "sntrup761x25519-sha512@openssh.com",
+      "curve25519-sha256",
+      "curve25519-sha256@libssh.org",
+      "ecdh-sha2-nistp256",
+      "ecdh-sha2-nistp384",
+      "ecdh-sha2-nistp521",
+      "diffie-hellman-group-exchange-sha256",
+      "kex-strict-s-v00@openssh.com"
+     ],
+     "compression_algorithms": [
+      "none",
+      "zlib@openssh.com"
+     ],
+     "mac_algorithms": [
+      "hmac-sha2-512-etm@openssh.com",
+      "hmac-sha2-256-etm@openssh.com",
+      "hmac-sha2-512",
+      "hmac-sha2-256"
+     ]
+    },
+    "hassh": "e9d1fc0116775fe091f73058259173dd"
+   }
+  },
+  {
+   "hash": 1256792822,
+   "asn": "AS36459",
+   "http": {
+    "status": 301,
+    "robots_hash": null,
+    "redirects": [],
+    "title_hash": null,
+    "securitytxt": null,
+    "title": null,
+    "sitemap_hash": null,
+    "robots": null,
+    "dom_hash": 0,
+    "components_hash": 0,
+    "headers_hash": -519471644,
+    "host": "140.82.121.4",
+    "html": "",
+    "server_hash": null,
+    "location": "/",
+    "components": {},
+    "securitytxt_hash": null,
+    "headers": {
+     "content-length": "0",
+     "location": "https://140.82.121.4/"
+    },
+    "server": null,
+    "sitemap": null,
+    "html_hash": 0
+   },
+   "os": null,
+   "timestamp": "2026-08-27T16:20:34.641716",
+   "isp": "GitHub, Inc.",
+   "transport": "tcp",
+   "_shodan": {
+    "region": "na",
+    "module": "http",
+    "ptr": true,
+    "options": {},
+    "id": "68bf931d-0886-4d49-8ed8-92e3a256a8e8",
+    "crawler": "1fbfdc1b0315df33fa363e4b960720395dff69c6"
+   },
+   "hostnames": [
+    "lb-140-82-121-4-fra.github.com"
+   ],
+   "location": {
+    "city": "Frankfurt am Main",
+    "region_code": "HE",
+    "area_code": null,
+    "longitude": 8.68417,
+    "latitude": 50.11552,
+    "country_code": "DE",
+    "country_name": "Germany"
+   },
+   "ip": 2354215172,
+   "domains": [
+    "github.com"
+   ],
+   "org": "GitHub, Inc.",
+   "data": "HTTP/1.1 301 Moved Permanently\r\nContent-Length: 0\r\nLocation: https://140.82.121.4/\r\n\r\n",
+   "port": 80,
+   "opts": {},
+   "ip_str": "140.82.121.4"
+  },
+  {
+   "hash": -1338826982,
+   "asn": "AS36459",
+   "http": {
+    "status": 301,
+    "robots_hash": null,
+    "redirects": [],
+    "title_hash": null,
+    "securitytxt": null,
+    "title": null,
+    "sitemap_hash": null,
+    "robots": null,
+    "dom_hash": 0,
+    "components_hash": -1458108667,
+    "headers_hash": 1002606206,
+    "host": "140.82.121.4",
+    "html": "",
+    "server_hash": null,
+    "location": "/",
+    "components": {
+     "HSTS": {
+      "categories": [
+       "Security"
+      ]
+     }
+    },
+    "securitytxt_hash": null,
+    "headers": {
+     "content-length": "0",
+     "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
+     "location": "https://github.com/"
+    },
+    "server": null,
+    "sitemap": null,
+    "html_hash": 0
+   },
+   "os": null,
+   "timestamp": "2026-08-28T04:44:07.144763",
+   "isp": "GitHub, Inc.",
+   "transport": "tcp",
+   "_shodan": {
+    "region": "na",
+    "module": "https",
+    "ptr": true,
+    "options": {
+     "referrer": "c6982087-37c0-43b3-aaf4-dfa040c184e9"
+    },
+    "id": "d015b66c-d23c-4593-8d61-51b5ba38ecb2",
+    "crawler": "3b30ded3f602a16b2b9b09425b50a05614063bc0"
+   },
+   "ssl": {
+    "chain_sha256": [
+     "17f8fd2e3fd2c113fcb9772d8a4babb8522dd06dd0794915a4ff98b1b6863a00",
+     "873f0ba80e3ac222656dfd04158cc15c2927d42d5d05f01dee4a47eb43a916df",
+     "ea6b89ed6907a209ff9188676fb164e7aced894b8996dfbe5ce5bbcc22de4ddd"
+    ],
+    "jarm": "27d27d27d00027d00041d41d000000aa5feb68b57d31b6dc713b6917a988e3",
+    "tlsext": [
+     {
+      "id": 43,
+      "name": "supported_versions"
+     },
+     {
+      "id": 51,
+      "name": "key_share"
+     },
+     {
+      "id": 0,
+      "name": "server_name"
+     }
+    ],
+    "chain": [
+     "-----BEGIN CERTIFICATE-----\nMIID7jCCA5SgAwIBAgIQcgEOA/SgZ/5OeWJmQwcY9jAKBggqhkjOPQQDAjBgMQsw\nCQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMTcwNQYDVQQDEy5T\nZWN0aWdvIFB1YmxpYyBTZXJ2ZXIgQXV0aGVudGljYXRpb24gQ0EgRFYgRTM2MB4X\nDTI2MDcwMzAwMDAwMFoXDTI2MDkzMDIzNTk1OVowFTETMBEGA1UEAxMKZ2l0aHVi\nLmNvbTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABIWWMDSOi/1sMgquP4I/obBM\n735wpzcIZi4fLeiBsToXVVSwjj4OPH+W6azHzxETM0gUP7raehddpJ8uwjqYsTij\nggJ5MIICdTAfBgNVHSMEGDAWgBQXmagEwW/kLXCoChA9A9PpGrgmYzAdBgNVHQ4E\nFgQUEKU6Ytbv1gZWnty4gvzCe2hdPWkwDgYDVR0PAQH/BAQDAgeAMAwGA1UdEwEB\n/wQCMAAwEwYDVR0lBAwwCgYIKwYBBQUHAwEwSQYDVR0gBEIwQDA0BgsrBgEEAbIx\nAQICBzAlMCMGCCsGAQUFBwIBFhdodHRwczovL3NlY3RpZ28uY29tL0NQUzAIBgZn\ngQwBAgEwgYQGCCsGAQUFBwEBBHgwdjBPBggrBgEFBQcwAoZDaHR0cDovL2NydC5z\nZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljU2VydmVyQXV0aGVudGljYXRpb25DQURW\nRTM2LmNydDAjBggrBgEFBQcwAYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wggEF\nBgorBgEEAdZ5AgQCBIH2BIHzAPEAdgDXbX0Q0af1d8LH6V/XAL/5gskzWmXh0LMB\ncxfAyMVpdwAAAZ8lTHVtAAAEAwBHMEUCIQCkpa0ZYNwsPiMRLHz+kk1QS/W9bg/8\n4yNBVGkT289dNQIgMWLgxYp6vGJXJxyD3c1NI1aZsPA7GqyLSXaZLZHgKh0AdwDI\no8R/x7OtuTVrAT9qehJt4zpOQ6XGRvmXrTl1mR3PmgAAAZ8lTHVhAAAEAwBIMEYC\nIQDsO+TR8EVfCiObBPoDLRKzKLQ/uorsebJ2aZDIejA9RgIhAJ6dp7FqCD93tQXX\nAF24pDIms1fX4dZ+VPzXGuD8u8t1MCUGA1UdEQQeMByCCmdpdGh1Yi5jb22CDnd3\ndy5naXRodWIuY29tMAoGCCqGSM49BAMCA0gAMEUCIB0PC2GRSurxu8gCkSNsYxmw\nkAtCNfCvpXRiif8PhGkmAiEAzBH4AVYAtv1FsMrJabD9FYcAql0EteKafckH2exj\nUag=\n-----END CERTIFICATE-----\n",
+     "-----BEGIN CERTIFICATE-----\nMIIDXzCCAuagAwIBAgIQNuBZ7YiN1Xrt1XC2cn+b2jAKBggqhkjOPQQDAzBfMQsw\nCQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMTYwNAYDVQQDEy1T\nZWN0aWdvIFB1YmxpYyBTZXJ2ZXIgQXV0aGVudGljYXRpb24gUm9vdCBFNDYwHhcN\nMjEwMzIyMDAwMDAwWhcNMzYwMzIxMjM1OTU5WjBgMQswCQYDVQQGEwJHQjEYMBYG\nA1UEChMPU2VjdGlnbyBMaW1pdGVkMTcwNQYDVQQDEy5TZWN0aWdvIFB1YmxpYyBT\nZXJ2ZXIgQXV0aGVudGljYXRpb24gQ0EgRFYgRTM2MFkwEwYHKoZIzj0CAQYIKoZI\nzj0DAQcDQgAEaKGnbAUnBYljHDmn/yUhxe3TLxKYuyzc9VXoSaCEV5F73Fhfa/Si\n/RMsmwTFW3R9s7J6JpYZFmu4do3vk/Vgl6OCAYEwggF9MB8GA1UdIwQYMBaAFNEi\n2kxZ8UtfJjiqndbu6w3D+6lhMB0GA1UdDgQWBBQXmagEwW/kLXCoChA9A9PpGrgm\nYzAOBgNVHQ8BAf8EBAMCAYYwEgYDVR0TAQH/BAgwBgEB/wIBADAdBgNVHSUEFjAU\nBggrBgEFBQcDAQYIKwYBBQUHAwIwGwYDVR0gBBQwEjAGBgRVHSAAMAgGBmeBDAEC\nATBUBgNVHR8ETTBLMEmgR6BFhkNodHRwOi8vY3JsLnNlY3RpZ28uY29tL1NlY3Rp\nZ29QdWJsaWNTZXJ2ZXJBdXRoZW50aWNhdGlvblJvb3RFNDYuY3JsMIGEBggrBgEF\nBQcBAQR4MHYwTwYIKwYBBQUHMAKGQ2h0dHA6Ly9jcnQuc2VjdGlnby5jb20vU2Vj\ndGlnb1B1YmxpY1NlcnZlckF1dGhlbnRpY2F0aW9uUm9vdEU0Ni5wN2MwIwYIKwYB\nBQUHMAGGF2h0dHA6Ly9vY3NwLnNlY3RpZ28uY29tMAoGCCqGSM49BAMDA2cAMGQC\nMFsKnBQDh64l+v+aUYWjDCJKQMxHUUGmcwAYDIjJ9pbRYItMCIx5xu0oUb6sIfTX\nqQIwPddcsDE4KdeLu1hJdpHgdLvsHAK3vygyLGujMU9xBJCDackRT93VHEE0gppg\nNqdV\n-----END CERTIFICATE-----\n",
+     "-----BEGIN CERTIFICATE-----\nMIIDRjCCAsugAwIBAgIQGp6v7G3o4ZtcGTFBto2Q3TAKBggqhkjOPQQDAzCBiDEL\nMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5ldyBKZXJzZXkxFDASBgNVBAcTC0plcnNl\neSBDaXR5MR4wHAYDVQQKExVUaGUgVVNFUlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMT\nJVVTRVJUcnVzdCBFQ0MgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkwHhcNMjEwMzIy\nMDAwMDAwWhcNMzgwMTE4MjM1OTU5WjBfMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP\nU2VjdGlnbyBMaW1pdGVkMTYwNAYDVQQDEy1TZWN0aWdvIFB1YmxpYyBTZXJ2ZXIg\nQXV0aGVudGljYXRpb24gUm9vdCBFNDYwdjAQBgcqhkjOPQIBBgUrgQQAIgNiAAR2\n+pmpbiDt+dd34wc7qNs9Xzjoq1WmVk/WSOrsfy2qw7LFeeyZYX8QeccCWvkEN/U0\nNSt3zn8gj1KjAIns1aeibVvjS5KToID1AZTc8GgHHs3u/iVStSBDHBv+6xnOQ6Oj\nggEgMIIBHDAfBgNVHSMEGDAWgBQ64QmG1M8ZwpZ2dEl23OA1xmNjmjAdBgNVHQ4E\nFgQU0SLaTFnxS18mOKqd1u7rDcP7qWEwDgYDVR0PAQH/BAQDAgGGMA8GA1UdEwEB\n/wQFMAMBAf8wHQYDVR0lBBYwFAYIKwYBBQUHAwEGCCsGAQUFBwMCMBEGA1UdIAQK\nMAgwBgYEVR0gADBQBgNVHR8ESTBHMEWgQ6BBhj9odHRwOi8vY3JsLnVzZXJ0cnVz\ndC5jb20vVVNFUlRydXN0RUNDQ2VydGlmaWNhdGlvbkF1dGhvcml0eS5jcmwwNQYI\nKwYBBQUHAQEEKTAnMCUGCCsGAQUFBzABhhlodHRwOi8vb2NzcC51c2VydHJ1c3Qu\nY29tMAoGCCqGSM49BAMDA2kAMGYCMQCMCyBit99vX2ba6xEkDe+YO7vC0twjbkv9\nPKpqGGuZ61JZryjFsp+DFpEclCVy4noCMQCwvZDXD/m2Ko1HA5Bkmz7YQOFAiNDD\n49IWa2wdT7R3DtODaSXH/BiXv8fwB9su4tU=\n-----END CERTIFICATE-----\n"
+    ],
+    "versions": [
+     "-TLSv1",
+     "-SSLv2",
+     "-SSLv3",
+     "-TLSv1.1",
+     "TLSv1.2",
+     "TLSv1.3"
+    ],
+    "acceptable_cas": [],
+    "alpn": [],
+    "cert": {
+     "sig_alg": "ecdsa-with-SHA256",
+     "issued": "20260703000000Z",
+     "expires": "20260930235959Z",
+     "pubkey": {
+      "bits": 256,
+      "type": "dsa"
+     },
+     "version": 2,
+     "extensions": [
+      {
+       "data": "0\\x16\\x80\\x14\\x17\\x99\\xa8\\x04\\xc1o\\xe4-p\\xa8\\n\\x10=\\x03\\xd3\\xe9\\x1a\\xb8&c",
+       "name": "authorityKeyIdentifier"
+      },
+      {
+       "data": "\\x04\\x14\\x10\\xa5:b\\xd6\\xef\\xd6\\x06V\\x9e\\xdc\\xb8\\x82\\xfc\\xc2{h]=i",
+       "name": "subjectKeyIdentifier"
+      },
+      {
+       "critical": true,
+       "data": "\\x03\\x02\\x07\\x80",
+       "name": "keyUsage"
+      },
+      {
+       "critical": true,
+       "data": "0\\x00",
+       "name": "basicConstraints"
+      },
+      {
+       "data": "0\\n\\x06\\x08+\\x06\\x01\\x05\\x05\\x07\\x03\\x01",
+       "name": "extendedKeyUsage"
+      },
+      {
+       "data": "0@04\\x06\\x0b+\\x06\\x01\\x04\\x01\\xb21\\x01\\x02\\x02\\x070%0#\\x06\\x08+\\x06\\x01\\x05\\x05\\x07\\x02\\x01\\x16\\x17https://sectigo.com/CPS0\\x08\\x06\\x06g\\x81\\x0c\\x01\\x02\\x01",
+       "name": "certificatePolicies"
+      },
+      {
+       "data": "0v0O\\x06\\x08+\\x06\\x01\\x05\\x05\\x070\\x02\\x86Chttp://crt.sectigo.com/SectigoPublicServerAuthenticationCADVE36.crt0#\\x06\\x08+\\x06\\x01\\x05\\x05\\x070\\x01\\x86\\x17http://ocsp.sectigo.com",
+       "name": "authorityInfoAccess"
+      },
+      {
+       "data": "\\x04\\x81\\xf3\\x00\\xf1\\x00v\\x00\\xd7m}\\x10\\xd1\\xa7\\xf5w\\xc2\\xc7\\xe9_\\xd7\\x00\\xbf\\xf9\\x82\\xc93Ze\\xe1\\xd0\\xb3\\x01s\\x17\\xc0\\xc8\\xc5iw\\x00\\x00\\x01\\x9f%Lum\\x00\\x00\\x04\\x03\\x00G0E\\x02!\\x00\\xa4\\xa5\\xad\\x19`\\xdc,>#\\x11,|\\xfe\\x92MPK\\xf5\\xbdn\\x0f\\xfc\\xe3#ATi\\x13\\xdb\\xcf]5\\x02 1b\\xe0\\xc5\\x8az\\xbcbW\\'\\x1c\\x83\\xdd\\xcdM#V\\x99\\xb0\\xf0;\\x1a\\xac\\x8bIv\\x99-\\x91\\xe0*\\x1d\\x00w\\x00\\xc8\\xa3\\xc4\\x7f\\xc7\\xb3\\xad\\xb95k\\x01?jz\\x12m\\xe3:NC\\xa5\\xc6F\\xf9\\x97\\xad9u\\x99\\x1d\\xcf\\x9a\\x00\\x00\\x01\\x9f%Lua\\x00\\x00\\x04\\x03\\x00H0F\\x02!\\x00\\xec;\\xe4\\xd1\\xf0E_\\n#\\x9b\\x04\\xfa\\x03-\\x12\\xb3(\\xb4?\\xba\\x8a\\xecy\\xb2vi\\x90\\xc8z0=F\\x02!\\x00\\x9e\\x9d\\xa7\\xb1j\\x08?w\\xb5\\x05\\xd7\\x00]\\xb8\\xa42&\\xb3W\\xd7\\xe1\\xd6~T\\xfc\\xd7\\x1a\\xe0\\xfc\\xbb\\xcbu",
+       "name": "ct_precert_scts"
+      },
+      {
+       "data": "0\\x1c\\x82\\ngithub.com\\x82\\x0ewww.github.com",
+       "name": "subjectAltName"
+      }
+     ],
+     "fingerprint": {
+      "sha256": "17f8fd2e3fd2c113fcb9772d8a4babb8522dd06dd0794915a4ff98b1b6863a00",
+      "sha1": "a5471f8766feafb2ee469970aeda6c614d14b21b"
+     },
+     "serial": 151537468083466144627263410141412137206,
+     "issuer": {
+      "C": "GB",
+      "CN": "Sectigo Public Server Authentication CA DV E36",
+      "O": "Sectigo Limited"
+     },
+     "expired": false,
+     "subject": {
+      "CN": "github.com"
+     }
+    },
+    "cipher": {
+     "version": "TLSv1.3",
+     "bits": 128,
+     "name": "TLS_AES_128_GCM_SHA256"
+    },
+    "trust": {
+     "revoked": false,
+     "browser": null
+    },
+    "handshake_states": [
+     "before SSL initialization",
+     "SSLv3/TLS write client hello",
+     "SSLv3/TLS read server hello",
+     "TLSv1.3 read encrypted extensions",
+     "SSLv3/TLS read server certificate",
+     "TLSv1.3 read server certificate verify",
+     "SSLv3/TLS read finished",
+     "SSLv3/TLS write change cipher spec",
+     "SSLv3/TLS write finished",
+     "SSL negotiation finished successfully"
+    ],
+    "ja3s": "b210411e648f206db393c31561686aea",
+    "ocsp": {}
+   },
+   "hostnames": [
+    "lb-140-82-121-4-fra.github.com",
+    "github.com",
+    "www.github.com"
+   ],
+   "location": {
+    "city": "Frankfurt am Main",
+    "region_code": "HE",
+    "area_code": null,
+    "longitude": 8.68417,
+    "latitude": 50.11552,
+    "country_code": "DE",
+    "country_name": "Germany"
+   },
+   "ip": 2354215172,
+   "domains": [
+    "github.com"
+   ],
+   "org": "GitHub, Inc.",
+   "data": "HTTP/1.1 301 Moved Permanently\r\nContent-Length: 0\r\nLocation: https://github.com/\r\nStrict-Transport-Security: max-age=31536000; includeSubDomains; preload\r\n\r\n",
+   "port": 443,
+   "opts": {
+    "vulns": [],
+    "heartbleed": "2026/08/28 04:44:29 140.82.121.4:443 - SAFE\n"
+   },
+   "ip_str": "140.82.121.4"
+  }
+ ],
+ "asn": "AS36459",
+ "city": "Frankfurt am Main",
+ "latitude": 50.11552,
+ "isp": "GitHub, Inc.",
+ "longitude": 8.68417,
+ "last_update": "2026-08-28T04:44:07.144763",
+ "country_name": "Germany",
+ "ip_str": "140.82.121.4",
+ "os": null,
+ "ports": [
+  80,
+  443,
+  22
+ ]
+}

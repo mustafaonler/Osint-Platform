@@ -419,15 +419,18 @@ def test_iki_katmanli_zincir():
     assert "subfinder" in {a.spec.name for a in r.uretenler(EntityType.SUBDOMAIN)}
     assert "dns-resolver" in {a.spec.name for a in r.tuketenler(EntityType.SUBDOMAIN)}
 
-    # 3. katman: dns-resolver IP üretir; IP tüketen henüz yok (asn-bgp gelecek)
+    # 3. katman: dns-resolver IP üretir, whois-rdap onu tüketir
     assert "dns-resolver" in {a.spec.name for a in r.uretenler(EntityType.IP)}
-    assert r.tuketenler(EntityType.IP) == []
+    # SABİT SAYI YAZILMAZ: IP tüketen yeni tool (asn-bgp, shodan-lookup)
+    # eklendiğinde bu iddia kırılmamalı, yalnızca zincirin varlığı önemli.
+    assert r.tuketenler(EntityType.IP), "IP tüketen tool yok — zincir kesik"
 
 
-def test_dns_resolver_tek_ip_ureticisi():
+def test_dns_resolver_ip_ve_org_uretir():
     r = ToolRegistry(TOOL_KOK)
-    assert {a.spec.name for a in r.uretenler(EntityType.IP)} == {"dns-resolver"}
-    assert {a.spec.name for a in r.uretenler(EntityType.ORG)} == {"dns-resolver"}
+    assert "dns-resolver" in {a.spec.name for a in r.uretenler(EntityType.IP)}
+    # ORG'u whois-rdap da üretir; TEKEL iddiası edilmez.
+    assert "dns-resolver" in {a.spec.name for a in r.uretenler(EntityType.ORG)}
 
 
 # --------------------------------------------------------------------------- #

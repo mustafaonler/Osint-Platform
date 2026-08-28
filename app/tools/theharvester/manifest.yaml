@@ -1,0 +1,32 @@
+# docs/kapsam.md Bolum 5.2 manifest semasi.
+name: theharvester
+version: "4.6.0"
+
+# P0: yalnizca ucuncu taraf veri tabanlari sorgulanir. Aktif modulleri
+# (-c dns-brute, -t tld, --screenshot) komuta HIC eklenmez - Seviye A.
+passivity: P0
+
+kabul_eder: [DOMAIN]
+uretir: [EMAIL, SUBDOMAIN]
+
+calistirma: docker
+image: osint-theharvester:1.0
+
+auth:
+  gerekli: false
+  # Secilen kaynaklarin HICBIRI anahtar istemez. theHarvester anahtarli
+  # kaynaklari (censys, hunter, intelx...) anahtar yoksa zaten atlar;
+  # biz onlari kaynak listesine hic almiyoruz ki bosuna beklenmesin.
+  env: []
+
+limitler:
+  # Yedi kaynak sirayla sorgulanir; subfinder'dan yavastir.
+  timeout_sn: 180
+  dakikalik_istek: 5
+  aylik_kota: null
+
+# Kaynaklari KARISIK: bir kismi pasif DNS arsivi, bir kismi arama motoru
+# kazimasi. subfinder'in (70) altinda.
+varsayilan_guven: 60
+
+etkin: true

@@ -1,0 +1,29 @@
+# docs/kapsam.md Bolum 5.2 manifest semasi.
+name: whois-rdap
+version: "1.0"
+
+# P0: tescil kurulusunun (registry/RIR) RDAP sunucusu sorgulanir,
+# hedefe tek paket gitmez.
+passivity: P0
+
+kabul_eder: [DOMAIN, IP, NETBLOCK]
+uretir: [ORG, SUBDOMAIN, NETBLOCK, ASN]
+
+calistirma: api
+image: null
+
+auth:
+  gerekli: false
+  env: []
+
+limitler:
+  timeout_sn: 30
+  # MUHAFAZAKAR: rdap.org 429'a sik takilir. Retry var ama en iyi retry,
+  # hic gerekmeyendir.
+  dakikalik_istek: 10
+  aylik_kota: null
+
+# Tescil kurulusunun kendi kaydi - otoriter kaynak (docs/veri-modeli.md 2.3).
+varsayilan_guven: 90
+
+etkin: true

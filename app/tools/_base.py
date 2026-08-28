@@ -98,7 +98,17 @@ class ToolSpec:
     uretir: frozenset[EntityType]
     calistirma: str  # "api" | "docker" | "python"
     image: str | None = None
+    # Tool'un okuyabileceği ortam değişkenleri. Runner YALNIZCA bunları
+    # `ToolConfig.env`'e koyar — bir tool başka tool'un anahtarını göremez.
     auth_env: tuple[str, ...] = ()
+    # `auth_env` ZORUNLU mu? Manifest'teki `auth.gerekli` alanının karşılığı.
+    #
+    # AYRIM ÖNEMLİ: `subfinder` anahtarsız da çalışır (anahtar yalnızca daha
+    # çok kaynak açar) → False. `shodan-lookup` anahtarsız HİÇ çalışamaz →
+    # True. İkisini ayırt edemeyen bir sözleşme, ya anahtarsız çalışabilen
+    # tool'u gereksiz yere durdurur ya da çalışamayacak olanı boşuna koşturup
+    # anlaşılmaz bir 401 döndürür.
+    auth_gerekli: bool = False
     # TEK DENEME içindir, toplam değil — gerekçe `toplam_butce_sn`'de.
     timeout_sn: int = 60
     dakikalik_istek: int | None = None
@@ -424,6 +434,21 @@ class ToolRegistry:
         # makul varsayılanı geçerlidir ve her manifest'in retry ayarı yazmak
         # zorunda kalması engellenir. Ama YAZILMIŞSA tutması gerekir — sessiz
         # kayma, iki doğruluk kaynağının en tehlikeli hâlidir.
+        auth = veri.get("auth") or {}
+        if isinstance(auth, dict):
+            if auth.get("gerekli") is not None:
+                beklenen.append(
+                    ("auth.gerekli", bool(auth["gerekli"]), spec.auth_gerekli)
+                )
+            if isinstance(auth.get("env"), list):
+                beklenen.append(
+                    (
+                        "auth.env",
+                        tuple(str(e) for e in auth["env"]),
+                        tuple(spec.auth_env),
+                    )
+                )
+
         limitler = veri.get("limitler") or {}
         if isinstance(limitler, dict):
             for alan, donustur, spec_deger in (

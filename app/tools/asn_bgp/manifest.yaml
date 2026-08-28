@@ -1,0 +1,29 @@
+# docs/kapsam.md Bolum 5.2 manifest semasi.
+# Bu tool CEKIRDEKTEDIR cunku tek bir IP'yi kurumun TUM IP bloklarina
+# genisletir: kesif yuzeyini tek hamlede buyutur (Bolum 3.3).
+name: asn-bgp
+version: "1.0"
+
+# P0: RIPEstat sorgulanir, hedefe tek paket gitmez.
+passivity: P0
+
+kabul_eder: [IP, ASN]
+uretir: [ASN, NETBLOCK, ORG]
+
+calistirma: api
+image: null
+
+auth:
+  gerekli: false
+  env: []
+
+limitler:
+  timeout_sn: 45
+  dakikalik_istek: 20
+  aylik_kota: null
+
+# BGP tablosu gozlemlenmis gercektir ama RIPEstat toplayicidir, tescil
+# otoritesi degil: RDAP'in (90) hemen alti.
+varsayilan_guven: 85
+
+etkin: true

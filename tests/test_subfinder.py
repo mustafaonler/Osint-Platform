@@ -190,7 +190,7 @@ def test_tuketenler_zincirlemenin_kalbi():
     assert "subfinder" in [a.spec.name for a in r.uretenler(EntityType.SUBDOMAIN)]
     # subfinder SUBDOMAIN tüketmez: sub -> sub döngüsü kurulmaz
     assert "subfinder" not in [a.spec.name for a in r.tuketenler(EntityType.SUBDOMAIN)]
-    assert r.tuketenler(EntityType.IP) == []
+    assert "subfinder" not in [a.spec.name for a in r.tuketenler(EntityType.IP)]
 
 
 def test_bos_klasorle_cokmez(tmp_path):

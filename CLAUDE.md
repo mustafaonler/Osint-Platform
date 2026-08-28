@@ -95,22 +95,77 @@ Hafta 3 kriteri ("tool eklemek 1 saatten az sürüyor") sağlandıktan sonra ekl
 
 ---
 
-## Şu anki durum: Hafta 1 — temel katman
+## Şu anki durum: Hafta 3 — eklenti sisteminin sınanması
 
-Mevcut dosyalar:
+**3/7 çekirdek tool tamam. 560 test geçiyor.**
+
+Bu haftanın çıktısı "3 tool eklendi" değil, **"tool eklemek ucuzladı"**dır.
+Ölçüm: `crtsh` 68 dakika (50'si bir kerelik altyapı borcu), `dns-resolver`
+**15 dakika ve çekirdekte tek satır**. Kriter sağlandı.
+
+### Çekirdek
 
 | Dosya | İçerik |
 |-------|--------|
-| [app/normalize.py](app/normalize.py) | `EntityType`, `normalize()`, `gecerli_mi()`, `domain_mi()`, `kok_domain()` |
-| [app/models.py](app/models.py) | 7 tablo (SQLAlchemy 2.x): investigation, entity, observation, relationship, job, assessment, hypothesis |
-| [app/tools/_base.py](app/tools/_base.py) | `ToolSpec`, `ToolConfig`, `RawResult`, `Observation`, `ObservedRelation`, `Passivity`, `RelationType`, `ToolAdapter`, `ToolRegistry` |
-| [tests/test_normalize.py](tests/test_normalize.py) | Projenin en yüksek öncelikli test seti |
+| [app/normalize.py](app/normalize.py) | `EntityType`, `normalize()`, `gecerli_mi()`, `domain_mi()`, `kok_domain()`, `service_parcala()` |
+| [app/models.py](app/models.py) | 7 tablo (SQLAlchemy 2.x) + `JobStatus`, `MAX_DERINLIK` |
+| [app/tools/_base.py](app/tools/_base.py) | Tool sözleşmesi + `ToolRegistry` (manifest keşfi, yetenek grafiği) |
+| [app/runner.py](app/runner.py) | `ContainerRunner`, `ApiRunner`, `ToolRunner`, retry, `HizSinirlayici` |
+| [app/ingest.py](app/ingest.py) | `upsert_entity`, `upsert_relationship`, `kuyruga_al`, `ingest()` |
+| [app/worker.py](app/worker.py) | Celery görevi: job → runner → parse → ingest |
+| [app/main.py](app/main.py) | FastAPI + Jinja2 + HTMX, 6 rota |
+| [app/db.py](app/db.py) | Oturum fabrikası |
 
-Test:
+### Tool'lar
+
+| Tool | Seviye | Çalıştırma | Girdi → Çıktı |
+|------|--------|-----------|----------------|
+| `subfinder` | P0 | docker | DOMAIN → SUBDOMAIN |
+| `crtsh` | P0 | api | DOMAIN → SUBDOMAIN, CERT |
+| `dns-resolver` | P1 | api | DOMAIN, SUBDOMAIN → IP, SUBDOMAIN, TECH, ORG |
+
+Sırada: `whois-rdap`, `asn-bgp`, `theharvester`, `shodan-lookup`.
+Henüz yazılmadı: `app/ai/provider.py`, rapor dışa aktarımı, ön eleme kuralları.
+
+### Testler — üç ayrı yol
+
+Test seti erişim ihtiyacına göre üçe ayrılır; hepsini tek komutla koşmak
+mümkün değildir çünkü veritabanı `osint-data` internal ağındadır.
 
 ```bash
-python -m pytest tests/ -v
+python -m pytest tests/ -m "not slow" --ignore=tests/test_ingest.py --ignore=tests/test_e2e.py
 ```
 
-Henüz yazılmadı (yol haritasına göre sırada): `app/main.py`, `app/worker.py`,
-`app/ingest.py`, `app/ai/provider.py`, Alembic migration'ları, tool adapter'ları.
+```bash
+docker compose run --rm --no-deps api python -m pytest tests/test_ingest.py -q
+```
+
+```bash
+docker compose run --rm --no-deps worker python -m pytest tests/test_e2e.py -q
+```
+
+Host'takiler hiçbir şeye bağlı değil (runner testleri Docker soketi ister).
+`test_ingest.py` veritabanına dokunur. `test_e2e.py` hem veritabanı hem Docker
+soketi ister — o yüzden `worker` servisinden koşar.
+
+---
+
+## Ortam notları
+
+- **`crt.sh` sık sık 502 döner.** Dakikalar içinde 200 ve 502 arasında gidip
+  gelir. Canlı testler bu yüzden `@pytest.mark.slow` işaretlidir ve servis
+  düşükse `pytest.skip` ile **atlanır** — asla `fail` etmezler. Bir testin
+  crt.sh'ın o anki keyfine bağlı olması, "kod mu bozuk, sunucu mu düştü"
+  sorusunu cevaplanamaz hâle getirir. Aynı sebeple `crtsh` adapter'ı 502'de
+  istisna fırlatmaz, `cikis_kodu`'na HTTP durumunu yazar ve runner retry'a düşer.
+- **Windows'ta `localhost` kullanma, `127.0.0.1` yaz.** `localhost` önce
+  `::1`'e (IPv6) çözülür, docker portları yalnızca IPv4'e yayınlar; her
+  bağlantı önce 100+ saniyelik TCP zaman aşımını bekler.
+- **Veritabanı host'tan TCP ile erişilemez** (`osint-data` internal ağ).
+  Migration ve DB testleri container içinden koşar. Elle SQL için:
+  `docker compose exec db psql -U osint -d osint`
+- **`pip` ve `alembic` PATH'te olmayabilir** — her zaman `python -m ...` kullan.
+- **Veritabanında gerçek araştırma kayıtları olabilir.** Testler
+  `investigation_id` ile filtrelemek ZORUNDADIR; filtresiz sorgu başka
+  araştırmaların satırlarını toplar ve yanlış sonuç verir. Test temizliği
+  yaparken `DELETE FROM investigation` gibi toptan silme KULLANMA.

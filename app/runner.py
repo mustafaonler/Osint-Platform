@@ -45,6 +45,7 @@ __all__ = [
     "ToolRunner",
     "ham_yaz",
     "yetki_engeli",
+    "anahtar_engeli",
     "gecici_mi",
     "GECICI_KODLAR",
     "KALICI_KODLAR",
@@ -133,13 +134,47 @@ def ham_yaz(
     return str(yol)
 
 
+def anahtar_engeli(spec: ToolSpec) -> RunSonucu | None:
+    """Zorunlu API anahtarı eksikse çalıştırma. Engel yoksa `None`.
+
+    NEDEN SESSİZCE GİZLEMİYORUZ
+    ------------------------------------------------------------------
+    Anahtarsız tool'u registry'den düşürmek ya da arayüzde hiç göstermemek,
+    analiste "bu tool neden çalışmadı" sorusunu CEVAPSIZ bırakır. Tool listede
+    kalır, seçilebilir ve seçilince EKSİĞİN ADIYLA birlikte SKIPPED döner —
+    "SHODAN_API_KEY tanımlı değil" mesajı, sessiz bir yokluktan çok daha
+    kullanışlıdır.
+
+    SKIPPED doğru durumdur: `JobStatus.SKIPPED` zaten "kota/limit/yetki
+    nedeniyle atlandı" demektir. FAILED demek olmaz — ortada bir arıza yok,
+    eksik bir yapılandırma var ve retry onu düzeltmez.
+
+    ANAHTARIN KENDİSİ ASLA MESAJA GİRMEZ; yalnızca DEĞİŞKEN ADI yazılır.
+    """
+    if not spec.auth_gerekli:
+        return None
+    eksik = [ad for ad in spec.auth_env if not os.environ.get(ad)]
+    if not eksik:
+        return None
+    return RunSonucu(
+        durum=JobStatus.SKIPPED,
+        hata_mesaji=(
+            f"{spec.name} API anahtari gerektiriyor; "
+            f"tanimli olmayan degisken(ler): {', '.join(eksik)}"
+        ),
+    )
+
+
 def yetki_engeli(spec: ToolSpec, yetki_onayi: bool) -> RunSonucu | None:
-    """P2/A seviyesi onaysız çalışmaz. Engel yoksa `None`.
+    """P2/A seviyesi onaysız, zorunlu anahtarı eksik tool çalışmaz.
 
     Container ve API koşucularının PAYLAŞTIĞI kontrol. Pasiflik, çalıştırma
     biçiminin değil tool'un özelliğidir; API üzerinden koşan bir P2 tool da
     aynı onayı ister.
     """
+    anahtar = anahtar_engeli(spec)
+    if anahtar is not None:
+        return anahtar
     if spec.yetki_ister() and not yetki_onayi:
         return RunSonucu(
             durum=JobStatus.SKIPPED,

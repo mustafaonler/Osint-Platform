@@ -1,9 +1,14 @@
 # Veri Modeli ve Tool Sözleşmesi
 
-**Sürüm:** 1.0.1
+**Sürüm:** 1.0.2
 **Bağlı doküman:** `docs/kapsam.md` v1.1
 **Hedef:** PostgreSQL 16, Python 3.12, SQLAlchemy 2.x
 
+> **v1.0.2 değişiklikleri:** Bölüm 3.5'teki CERT kimliği kuralı, Bölüm 4.3'teki
+> örnek adapter ile çelişiyordu; kural 8-64 hex olarak netleştirildi ve kabul
+> edilen bedel yazıldı. `RelationType`'a `CNAME_FOR` eklendi (dns-resolver
+> CNAME zincirini bu ilişkiyle kurar).
+>
 > **v1.0.1 düzeltmesi:** Bölüm 3.1 ve 3.10'da `şirket.com.tr` için beklenen punycode
 > değeri `xn--irket-bua.com.tr` yazıyordu; doğrusu **`xn--irket-idb.com.tr`**'dir
 > (`"şirket".encode("idna")` → `b"xn--irket-idb"`). Testler doğru değerle yazılmıştır.
@@ -44,6 +49,7 @@ class EntityType(StrEnum):
 class RelationType(StrEnum):
     SUBDOMAIN_OF  = "subdomain_of"    # sub → domain
     RESOLVES_TO   = "resolves_to"     # domain/sub → ip
+    CNAME_FOR     = "cname_for"       # takma ad → asıl ad (alias → canonical)
     MX_FOR        = "mx_for"          # sub → domain
     NS_FOR        = "ns_for"          # sub → domain
     CERT_FOR      = "cert_for"        # cert → domain/sub
@@ -325,10 +331,31 @@ Plus-tag ve orijinal büyük/küçük hali `deger_ham`'da korunur. RFC'ye göre 
 ### 3.5 CERT
 
 ```python
-deger_norm = sha256_fingerprint.lower()   # 64 karakter hex
+deger_norm = tanimlayici.lower()   # 8-64 karakter hex, iki nokta ve boşluk atılır
 ```
 
-Sertifikanın kimliği parmak izidir. CN, SAN listesi, issuer, geçerlilik tarihleri `nitelikler`'de durur. SAN'lardan çıkan her alan adı **ayrı SUBDOMAIN entity'si** olarak `cert_for` ilişkisiyle bağlanır.
+Sertifikanın kimliği, **kaynağın verebildiği en güçlü hex tanımlayıcıdır**:
+
+- Parmak izi elde edilebiliyorsa (TLS el sıkışması, certspotter) SHA-256 kullanılır — 64 hex.
+- Edilemiyorsa X.509 **seri numarası** kullanılır — tipik olarak 16-40 hex.
+
+CN, SAN listesi, issuer, geçerlilik tarihleri `nitelikler`'de durur. SAN'lardan çıkan her alan adı **ayrı SUBDOMAIN entity'si** olarak `cert_for` ilişkisiyle bağlanır.
+
+#### Bu kural neden 64 hex değil (v1.0.2 düzeltmesi)
+
+Doküman v1.0'da bu bölüm "kimlik = SHA-256 parmak izi (64 hex)" diyordu, ama **Bölüm 4.3'teki örnek crt.sh adapter'ı `serial_number` alanını CERT değeri olarak kullanıyor.** İki bölüm birbiriyle çelişiyordu.
+
+Ölçüm çelişkiyi çözdü: **crt.sh'ın arama uç noktası parmak izini hiç döndürmüyor.** Dönen alanlar `issuer_ca_id`, `issuer_name`, `common_name`, `name_value`, `id`, `serial_number`, `not_before`, `not_after`. Gerçek bir yanıtta `serial_number` 32 hex uzunluğundaydı.
+
+Yalnızca 64 hex kabul edilseydi, crt.sh'tan gelen her sertifika gözlemi `gecerli_mi()` süzgecine takılır ve **tüm CT log ailesi (crtsh, certspotter) CERT üretemez hâle gelirdi.** Parmak izini elde etmenin tek yolu sertifikanın tamamını ayrı bir istekle çekip hash'lemektir — sertifika başına bir HTTP isteği demektir, v1 kapsamında değildir.
+
+#### Kabul edilen bedel
+
+İki kaynak aynı sertifikayı **farklı tanımlayıcıyla** bildirirse (biri parmak izi, biri seri numarası) **tekilleşme olmaz, iki ayrı entity oluşur.**
+
+Bu v1'de bilinçli bir sınırlamadır ve Bölüm 3.8'deki ORG kararıyla aynı mantığa dayanır: **ayrı kalmak, yanlış birleştirmekten daha az zararlıdır.** Analist iki satır görür ve ikisinin aynı sertifika olduğunu anlayabilir; yanlış birleştirilmiş iki sertifika ise sessizce yanlış bir bulgu üretir.
+
+Kalıcı çözüm, sertifikayı çekip parmak izini hesaplamak ve seri numarasını `nitelikler`'e taşımaktır. v2 işidir.
 
 ### 3.6 ASN
 
