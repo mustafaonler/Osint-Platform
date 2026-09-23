@@ -53,16 +53,9 @@ def _kuyruga_gonder(job_id: uuid.UUID) -> None:
     Arayüz kuyruğun ayakta olmasına bağımlı değildir; iş satırı zaten
     veritabanında durur ve worker geldiğinde alınabilir.
     """
-    try:
-        from app.worker import celery_app
+    from app.worker import kuyruga_gonder
 
-        celery_app.send_task("osint.job_calistir", args=[str(job_id)])
-    except Exception:  # noqa: BLE001
-        import logging
-
-        logging.getLogger(__name__).warning(
-            "job %s kuyruğa gönderilemedi, 'queued' olarak bekliyor", job_id
-        )
+    kuyruga_gonder(job_id)
 
 
 # --------------------------------------------------------------------------- #

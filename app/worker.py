@@ -66,6 +66,22 @@ def runner() -> ToolRunner:
     return _runner
 
 
+def kuyruga_gonder(job_id) -> bool:
+    """Celery'ye görev gönderir. Broker yoksa iş `queued` kalır, istisna yok.
+
+    `ingest()` yalnızca `job` satırını yazar; görevi dağıtan burasıdır. İkisi
+    ayrı olduğu için satır yazılıp görev gönderilmemesi MÜMKÜNDÜR ve tam olarak
+    bu hata Hafta 4 ölçümünde yakalandı: 154 zincirleme iş sonsuza kadar
+    `queued` durumunda bekledi çünkü `send_task` yalnızca arayüzde vardı.
+    """
+    try:
+        celery_app.send_task("osint.job_calistir", args=[str(job_id)])
+        return True
+    except Exception:  # noqa: BLE001 — broker yoksa tur düşmez
+        log.warning("job %s kuyruğa gönderilemedi, 'queued' bekliyor", job_id)
+        return False
+
+
 def _simdi() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -192,6 +208,13 @@ def _ayristir_ve_yaz(session, job: Job, adapter: ToolAdapter, sonuc: RunSonucu):
         registry=registry(),
     )
     session.commit()
+
+    # GÖNDERİM COMMIT'TEN SONRA. Önce gönderilirse yarış oluşur: Celery
+    # görevi, `job` satırı henüz görünür olmadan başka bir worker tarafından
+    # alınabilir ve "job bulunamadı" ile düşer.
+    for jid in ozet.kuyruk_idleri:
+        kuyruga_gonder(jid)
+
     log.info(
         "%s: %d gözlem, %d ilişki, %d yeni iş (atlanan %d)",
         job.tool,

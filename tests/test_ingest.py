@@ -605,6 +605,41 @@ def test_zincirleme_is_kuyruga_girer(session, inv_id, job, registry):
     assert yeni.parent_job_id == job.id
 
 
+def test_zincirleme_is_idleri_donuyor(session, inv_id, job, registry):
+    """HAFTA 4 ÖLÇÜMÜNDE YAKALANAN HATANIN REGRESYON TESTİ.
+
+    `kuyruga_al` yalnızca `job` SATIRINI yazar; Celery görevini göndermez.
+    Çağıranın gönderebilmesi için ID'leri GERİ ALMASI şarttır. Bu liste
+    dönmezse zincirleme işler sonsuza kadar `queued` kalır ve otomatik
+    zincirleme SESSİZCE çalışmaz — ölçümde 154 iş böyle takıldı.
+    """
+    g = _obs("firma.com", tip=EntityType.DOMAIN)
+    s = ingest(session, job, [g], spec=SAHTE_SPEC, ham_cikti_ref="r", registry=registry)
+    session.commit()
+
+    assert s.kuyruk_idleri, "kuyruğa alınan iş ID'leri dönmüyor"
+    assert len(s.kuyruk_idleri) == s.kuyruga_alinan
+
+    # Dönen her ID gerçekten var olan, 'queued' bir işe karşılık gelmeli
+    for jid in s.kuyruk_idleri:
+        j = session.get(Job, jid)
+        assert j is not None, f"olmayan job id döndü: {jid}"
+        assert j.durum == "queued"
+        assert j.investigation_id == inv_id
+
+
+def test_kuyruga_alinmayan_is_idsi_donmez(session, inv_id, job, registry):
+    """İkinci turda `uq_job_tekrar` engelliyor; ID de dönmemeli."""
+    g = _obs("firma.com", tip=EntityType.DOMAIN)
+    ingest(session, job, [g], spec=SAHTE_SPEC, ham_cikti_ref="r", registry=registry)
+    session.commit()
+    iki = ingest(session, job, [g], spec=SAHTE_SPEC, ham_cikti_ref="r", registry=registry)
+    session.commit()
+
+    assert iki.kuyruga_alinan == 0
+    assert iki.kuyruk_idleri == []
+
+
 def test_subdomain_zincirleme_ikinci_katman(session, inv_id, job, registry):
     """İKİ KATMANLI ZİNCİR: SUBDOMAIN oluşunca onu tüketen tool'lar kuyruğa girer.
 

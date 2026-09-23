@@ -178,6 +178,11 @@ def kuyruga_al(
 ) -> Job | None:
     """Zincirleme işi kuyruğa alır. Zaten varsa `None` döner.
 
+    DİKKAT: Bu fonksiyon yalnızca `job` SATIRINI yazar; Celery görevini
+    GÖNDERMEZ. Gönderim çağıranın işidir ve COMMIT'TEN SONRA yapılmalıdır.
+    Aksi hâlde iş satırı sonsuza kadar `queued` durumunda kalır — zincirleme
+    sessizce çalışmaz. (Bu tam olarak Hafta 4 ölçümünde yakalanan hataydı.)
+
     SONSUZ DÖNGÜ KORUMASI `uq_job_tekrar (investigation_id, tool, hedef_deger)`
     kısıtındadır ve `ON CONFLICT DO NOTHING` ile kullanılır. Otomatik
     zincirlemede A→B→A çevrimleri kaçınılmazdır; bu kısıt aynı tool'un aynı
@@ -223,6 +228,10 @@ class IngestSonucu:
     atlanan: int = 0
     kuyruga_alinan: int = 0
     atlanan_ayrinti: list[str] = field(default_factory=list)
+    # Kuyruğa alınan işlerin ID'leri. Çağıran bunları Celery'ye GÖNDERMEK
+    # ZORUNDADIR — `kuyruga_al` yalnızca `job` satırını yazar, görevi
+    # dağıtmaz. Gönderim COMMIT'TEN SONRA yapılmalıdır (bkz. worker).
+    kuyruk_idleri: list[uuid.UUID] = field(default_factory=list)
 
 
 def _tip_duzelt(tip: EntityType, norm: str) -> EntityType:
@@ -395,6 +404,7 @@ def ingest(
             )
             if yeni is not None:
                 sonuc.kuyruga_alinan += 1
+                sonuc.kuyruk_idleri.append(yeni.id)
 
     if sonuc.atlanan:
         log.warning(

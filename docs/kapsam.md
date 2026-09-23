@@ -192,7 +192,7 @@ uretir: [SUBDOMAIN, IP, SERVICE, CERT, TECH]
 calistirma: api              # api | docker | python
 image: null                  # calistirma=docker ise imaj adı
 auth:
-  gerekli: true
+  gerekli: true               # ToolSpec.auth_gerekli - anahtar ZORUNLU mu?
   env: [CENSYS_API_ID, CENSYS_API_SECRET]
 limitler:
   timeout_sn: 60             # TEK DENEME icin (bkz. asagida)
@@ -202,6 +202,46 @@ limitler:
   geri_cekilme_sn: 2.0       # istege bagli, varsayilan 2.0 (ustel: 2, 4, 8)
 etkin: true
 ```
+
+**`auth.gerekli` — anahtar zorunlu mu, opsiyonel mi**
+
+`ToolSpec.auth_gerekli` alanının karşılığıdır ve iki durumu ayırt eder:
+
+| Tool | `auth.gerekli` | Anahtar yoksa |
+|------|----------------|---------------|
+| `subfinder` | `false` | Çalışır; anahtar yalnızca daha çok kaynak açar |
+| `shodan-lookup` | `true` | HİÇ çalışamaz |
+
+Bu ayrım olmadan `auth.env` tek başına yetersizdir: ya anahtarsız çalışabilen
+tool gereksiz yere durdurulur, ya çalışamayacak olan boşuna koşturulup
+anlaşılmaz bir 401 döndürülür.
+
+**Anahtarı eksik tool `SKIPPED` döner — gizlenmez.**
+
+Runner (`anahtar_engeli`), `auth_gerekli: true` olan bir tool'un `auth_env`
+değişkenlerinden biri tanımsızsa tool'u çalıştırmaz ve şu mesajla `SKIPPED`
+döner:
+
+```
+shodan-lookup API anahtari gerektiriyor;
+tanimli olmayan degisken(ler): SHODAN_API_KEY
+```
+
+Alternatifler ve neden seçilmedikleri:
+
+- **Registry'den düşürmek** → tool arayüzde hiç görünmez; analist "bu tool
+  neden çalışmadı" sorusunu soramaz bile. Sessiz yokluk, yanlış negatifin
+  bir başka biçimidir (İlke 1'in aynı mantığı).
+- **`FAILED` dönmek** → ortada arıza yok, eksik yapılandırma var. `FAILED`
+  retry'ı da tetikler; yanlış anahtar tekrar denemekle düzelmez.
+
+`SKIPPED` doğru durumdur: `JobStatus.SKIPPED` zaten "kota/limit/yetki
+nedeniyle atlandı" anlamına gelir.
+
+**Anahtarın kendisi hiçbir yere yazılmaz.** Mesajda yalnızca DEĞİŞKEN ADI
+geçer. Anahtarı URL parametresinde taşıyan API'lerde (Shodan) adapter, ham
+arşive ve hata mesajına yazmadan önce değeri maskelemekle yükümlüdür —
+`shodan-lookup` testleri ham arşiv dosyasını diskten okuyup anahtarı arar.
 
 `limitler` bloğundaki alanların hepsi **isteğe bağlıdır**; yazılmayan alan için
 `ToolSpec` varsayılanı geçerlidir. Yazılmışsa adapter'daki `ToolSpec` ile
@@ -309,7 +349,7 @@ Bunlardan **kota takibi (`aylik_kota`) henüz uygulanmamıştır**; paylaşılan
 Bölüm 3.3'teki liste. Bunlar eklenti sistemini de doğrulayan referans
 implementasyonlardır.
 
-**Durum: 4/7 tamam.**
+**Durum: 7/7 TAMAM.** Çekirdek tool seti kapandı.
 
 | Tool | Seviye | Çalıştırma | Girdi | Ürettiği | Durum |
 |------|--------|-----------|-------|----------|-------|
@@ -317,22 +357,33 @@ implementasyonlardır.
 | `crtsh` | P0 | api | DOMAIN | SUBDOMAIN, CERT | ✅ Hafta 3 |
 | `dns-resolver` | P1 | api | DOMAIN, SUBDOMAIN | IP, SUBDOMAIN, TECH, ORG | ✅ Hafta 3 |
 | `whois-rdap` | P0 | api | DOMAIN, IP, NETBLOCK | ORG, SUBDOMAIN, NETBLOCK, ASN | ✅ Hafta 3 |
-| `asn-bgp` | P0 | api | IP, ASN | ASN, NETBLOCK, ORG | ⬜ sırada |
-| `theharvester` | P0 | docker | DOMAIN | EMAIL, SUBDOMAIN | ⬜ |
-| `shodan-lookup` | P0 | api | IP | SERVICE, TECH | ⬜ (API key) |
+| `asn-bgp` | P0 | api | IP, ASN | ASN, NETBLOCK, ORG | ✅ Hafta 3 |
+| `theharvester` | P0 | docker | DOMAIN | EMAIL, SUBDOMAIN | ✅ Hafta 3 |
+| `shodan-lookup` | P0 | api | IP | SERVICE, TECH, ORG | ✅ Hafta 3 (API key) |
 
 **Yetenek grafiğinin bugünkü hâli** — hiçbir zincirleme kuralı elle yazılmadı,
 tamamı manifest'lerdeki `kabul_eder` / `uretir` alanlarından türedi:
 
 ```
-DOMAIN    → crtsh, dns-resolver, subfinder, whois-rdap
+DOMAIN    → crtsh, dns-resolver, subfinder, theharvester, whois-rdap
 SUBDOMAIN → dns-resolver
-IP        → whois-rdap
+IP        → asn-bgp, shodan-lookup, whois-rdap
 NETBLOCK  → whois-rdap
+ASN       → asn-bgp
+SERVICE   → (tüketen yok — zincir burada biter)
+EMAIL     → (tüketen yok — kişi araştırması kapsam dışı, Bölüm 4)
 ```
 
-Zincir şu an **üç katmanlı**: `DOMAIN → SUBDOMAIN → IP → NETBLOCK/ORG`.
-`asn-bgp` eklendiğinde ASN katmanı da açılır.
+Zincir **dört katmanlı**:
+
+```
+DOMAIN → SUBDOMAIN → IP → { ASN → NETBLOCK , SERVICE , ORG }
+```
+
+`asn-bgp` NETBLOCK üretir, `whois-rdap` NETBLOCK tüketip ASN üretir, `asn-bgp`
+da ASN tüketir — yani iki tool birbirini besler. Bu **çevrim kaçınılmazdır** ve
+iki koruma onu keser: `uq_job_tekrar` (aynı tool + aynı hedef ikinci kez
+kuyruğa giremez) ve `MAX_DERINLIK` (tarama patlaması durur).
 
 **Tool ekleme maliyeti (ölçüldü):**
 
@@ -340,11 +391,20 @@ Zincir şu an **üç katmanlı**: `DOMAIN → SUBDOMAIN → IP → NETBLOCK/ORG`
 |------|------|----------------|-------|
 | `crtsh` | 68 dk | 3 (`runner`, `worker`, `normalize`) | `ApiRunner` hiç yoktu; CERT kimlik kuralı crt.sh verisiyle uyumsuzdu |
 | `dns-resolver` | 15 dk | 1 (`_base`, tek satır) | `RelationType`'a `CNAME_FOR` eklendi |
-| `whois-rdap` | **8 dk** | **0** | Hiçbir yeni altyapı gerekmedi |
+| `whois-rdap` | 8 dk | 0 | Hiçbir yeni altyapı gerekmedi |
+| `asn-bgp` | **7 dk** | **0** | Hiçbir yeni altyapı gerekmedi |
+| `theharvester` | 10 dk | 0 | İkinci docker tool'u; imaj inşası ek adım |
+| `shodan-lookup` | 8 dk | 2 (`_base`, `runner`) | `ToolSpec`'te `auth.gerekli` karşılığı yoktu |
 
-Hafta 3 kriteri ("yeni tool 1 saatten kısa sürede eklenebiliyor") `dns-resolver`
-ile **sağlanmıştır**. `crtsh`'ın 68 dakikasının ~50'si bir kerelik altyapı
-borcuydu (API koşucusu, retry, rate limit) ve bir daha ödenmeyecektir.
+Hafta 3 kriteri ("yeni tool 1 saatten kısa sürede eklenebiliyor")
+**sağlanmıştır**: ilk tool'dan sonraki altı tool'un ortalaması **9,6 dakika**,
+en yavaşı 15 dakika. `crtsh`'ın 68 dakikasının ~50'si bir kerelik altyapı
+borcuydu (API koşucusu, retry, rate limit) ve bir daha ödenmedi.
+
+Altı tool'un **dördü çekirdeğe hiç dokunmadı.** Dokunan ikisi de aynı sınıf
+bir boşluğu kapattı: manifest şemasında TANIMLI olan ama `ToolSpec`'te
+KARŞILIĞI OLMAYAN bir alan (`calistirma: api` ve `auth.gerekli`). İkisi de
+tool'a özgü istisna değil, sözleşmenin eksik kalmış parçasıydı.
 
 `CNAME_FOR` eklemesi bir mimari eksiklik DEĞİLDİR: `RelationType` ve
 `EntityType` **paylaşılan sözlüktür**, tool'a özel değildir. İki tool'un
