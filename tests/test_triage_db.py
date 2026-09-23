@@ -105,7 +105,11 @@ def test_http_sayfalar_gruplar_polling_ve_escape(veri):
             cert = client.get(url + "/entities?grup=sertifika")
             assert cert.text.count("kaynağı gör") == 1
             assert "grup=sertifika&amp;sayfa=1" in cert.text
-            assert "Tüm varlıklar (112)" in cert.text
+            # Bir grup secilyken bile "tumu" sekmesi TOPLAM sayiyi gosterir:
+            # analist hicbir seyin gizlenmedigini gorebilmelidir (Ilke 1).
+            tumu_bag = cert.text.index("?grup=tumu")
+            assert "112" in cert.text[tumu_bag:tumu_bag + 200]
+            assert "Tümü" in cert.text
             incele = client.get(url + "/entities?grup=incele")
             assert "<script>alert" not in incele.text
             assert "&lt;script&gt;" in incele.text

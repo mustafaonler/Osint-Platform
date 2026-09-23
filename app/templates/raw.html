@@ -1,13 +1,45 @@
 {% extends "base.html" %}
 {% block baslik %}Ham çıktı — {{ gozlem.tool }}{% endblock %}
+
+{% block ust_eylem %}
+<a class="dugme" href="/entities/{{ gozlem.entity_id }}">← Varlığa dön</a>
+<a class="dugme birincil" href="/observations/{{ gozlem.id }}/raw?indir=true">Dosyayı indir</a>
+{% endblock %}
+
 {% block icerik %}
-<p><a href="/entities/{{ gozlem.entity_id }}">← Varlığa ve kanıt zincirine dön</a></p>
-<h1>Ham çıktı — {{ gozlem.tool }} / {{ gozlem.tool_version }}</h1>
-<p>Gözlem zamanı: {{ gozlem.zaman }} · Güven: {{ gozlem.guven }}</p>
-<p>Çıktı içindeki yer: <code>{{ gozlem.ham_cikti_yol or 'Belirtilmemiş' }}</code></p>
-<p class="kucuk">Arşiv referansı: {{ gozlem.ham_cikti_ref }}</p>
-<p><a href="/observations/{{ gozlem.id }}/raw?indir=true">Ham dosyanın tamamını indir</a></p>
-<p class="kucuk">İçerik düz metin olarak gösterilir. UTF-8 olarak çözülemeyen baytlar önizlemede � ile gösterilebilir; indirilen dosya özgün baytları korur.</p>
-{% if kirpildi %}<p class="uyari">Önizleme ilk {{ limit_kib }} KiB ile sınırlı. Tam içeriğe indirme bağlantısından ulaşabilirsiniz.</p>{% endif %}
+
+<h1>Ham çıktı</h1>
+<p class="silik">
+  <span class="deger">{{ gozlem.tool }}</span> / {{ gozlem.tool_version }}
+  · {{ gozlem.zaman.strftime("%d.%m.%Y %H:%M:%S") }}
+  · güven <span class="rozet rozet-notr">{{ gozlem.guven }}</span>
+</p>
+
+<div class="kart" style="margin-top:20px">
+  <div class="tablo-kapsayici">
+    <table class="anahtar-deger">
+      <tbody>
+        <tr><th>Çıktı içindeki yer</th>
+            <td><code>{{ gozlem.ham_cikti_yol or 'Belirtilmemiş' }}</code></td></tr>
+        <tr><th>Arşiv referansı</th><td class="kucuk">{{ gozlem.ham_cikti_ref }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if kirpildi %}
+<div class="kutu kutu-uyari">
+  Önizleme ilk {{ limit_kib }} KiB ile sınırlı. Tam içeriğe indirme bağlantısından
+  ulaşabilirsiniz.
+</div>
+{% endif %}
+
+<div class="kutu kutu-bilgi">
+  İçerik düz metin olarak gösterilir ve <strong>hiçbir zaman HTML olarak
+  çalıştırılmaz</strong> — tool çıktısı güvenilmeyen veridir. UTF-8 olarak
+  çözülemeyen baytlar önizlemede &#65533; ile gösterilebilir; indirilen dosya
+  özgün baytları korur.
+</div>
+
 <pre class="ham-cikti">{{ icerik }}</pre>
 {% endblock %}

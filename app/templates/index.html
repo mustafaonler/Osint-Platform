@@ -1,30 +1,85 @@
 {% extends "base.html" %}
 {% block icerik %}
+
 <h1>Araştırmalar</h1>
+<p class="silik">Bir kök domain verin; sistem pasif keşif araçlarını zincirleyerek
+  çalıştırır, çıktıları tekilleştirir ve önceliklendirir.</p>
 
-<table>
-  <tr><th>Ad</th><th>Kök hedef</th><th>Yetki</th><th>Oluşturan</th><th>Tarih</th></tr>
-  {% for a in arastirmalar %}
-  <tr>
-    <td><a href="/investigations/{{ a.id }}">{{ a.ad }}</a></td>
-    <td>{{ a.kok_hedef }}</td>
-    <td>{{ "onaylı" if a.yetki_onayi else "yok" }}</td>
-    <td>{{ a.olusturan }}</td>
-    <td class="kucuk">{{ a.olusturma.strftime("%Y-%m-%d %H:%M") }}</td>
-  </tr>
-  {% else %}
-  <tr><td colspan="5" class="kucuk">henüz araştırma yok</td></tr>
-  {% endfor %}
-</table>
+<div class="izgara izgara-2" style="margin-top:20px; align-items:start;">
 
-<h2>Yeni araştırma</h2>
-<form method="post" action="/investigations">
-  <label>Ad <input type="text" name="ad" required></label>
-  <label>Kök hedef <input type="text" name="kok_hedef" placeholder="firma.com" required></label>
-  <label>Oluşturan <input type="text" name="olusturan" value="ekip"></label>
-  <label>Kapsam notu <input type="text" name="kapsam_notu"></label>
-  <label><input type="checkbox" name="yetki_onayi" value="true"> Yetki onayı var (P2 modülleri açılır)</label>
-  <label>Yetki notu <input type="text" name="yetki_notu" placeholder="kim, ne zaman, hangi belgeye dayanarak"></label>
-  <button type="submit">Oluştur</button>
-</form>
+  <div class="kart">
+    <div class="kart-bas">
+      <h2>Mevcut araştırmalar</h2>
+      <span class="ust-ara"></span>
+      <span class="rozet rozet-notr">{{ arastirmalar|length }}</span>
+    </div>
+    {% if arastirmalar %}
+    <div class="tablo-kapsayici">
+      <table>
+        <thead>
+          <tr><th>Araştırma</th><th>Kök hedef</th><th>Yetki</th><th>Oluşturan</th><th>Tarih</th></tr>
+        </thead>
+        <tbody>
+        {% for a in arastirmalar %}
+          <tr>
+            <td><a href="/investigations/{{ a.id }}"><strong>{{ a.ad }}</strong></a></td>
+            <td><span class="deger">{{ a.kok_hedef }}</span></td>
+            <td>
+              {% if a.yetki_onayi %}<span class="rozet rozet-ok">onaylı</span>
+              {% else %}<span class="rozet rozet-notr">yok</span>{% endif %}
+            </td>
+            <td class="kucuk">{{ a.olusturan }}</td>
+            <td class="kucuk">{{ a.olusturma.strftime("%d.%m.%Y %H:%M") }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="bos">Henüz araştırma yok. Sağdaki formla ilkini oluşturun.</p>
+    {% endif %}
+  </div>
+
+  <div class="kart">
+    <div class="kart-bas"><h2>Yeni araştırma</h2></div>
+    <div class="kart-govde">
+      <form method="post" action="/investigations">
+        <div class="alan">
+          <label for="ad">Araştırma adı</label>
+          <input id="ad" type="text" name="ad" required placeholder="ör. Q3 dış yüzey taraması">
+        </div>
+        <div class="alan">
+          <label for="kok_hedef">Kök hedef</label>
+          <input id="kok_hedef" type="text" name="kok_hedef" placeholder="firma.com" required>
+          <p class="ipucu">Subdomain girerseniz kök domaine indirilir. Yalnızca
+            araştırma yetkiniz olan bir hedef girin.</p>
+        </div>
+        <div class="alan">
+          <label for="olusturan">Oluşturan</label>
+          <input id="olusturan" type="text" name="olusturan" value="ekip">
+        </div>
+        <div class="alan">
+          <label for="kapsam_notu">Kapsam notu</label>
+          <input id="kapsam_notu" type="text" name="kapsam_notu"
+                 placeholder="neyin dahil, neyin hariç olduğu">
+        </div>
+        <div class="alan">
+          <label class="onay" for="yetki_onayi">
+            <input id="yetki_onayi" type="checkbox" name="yetki_onayi" value="true">
+            <span><strong>Yetki onayı var</strong><br>
+              Hedefin altyapısına doğrudan giden P2 modülleri açılır. v1'de tüm
+              çekirdek tool'lar P0/P1 olduğu için bu kutu genellikle boş bırakılır.</span>
+          </label>
+        </div>
+        <div class="alan">
+          <label for="yetki_notu">Yetki notu</label>
+          <input id="yetki_notu" type="text" name="yetki_notu"
+                 placeholder="kim, ne zaman, hangi belgeye dayanarak">
+        </div>
+        <button type="submit" class="birincil">Araştırma oluştur</button>
+      </form>
+    </div>
+  </div>
+
+</div>
 {% endblock %}

@@ -1,70 +1,128 @@
 {% extends "base.html" %}
 {% block baslik %}{{ entity.deger_ham }}{% endblock %}
-{% block icerik %}
-<p class="kucuk"><a href="/investigations/{{ entity.investigation_id }}">&larr; {{ inv.ad if inv else "araştırma" }}</a></p>
-<h1>{{ entity.tip }} — {{ entity.deger_ham }}</h1>
-<table>
-  <tr><th>Normalize değer</th><td>{{ entity.deger_norm }}</td></tr>
-  <tr><th>İlk görülme</th><td class="kucuk">{{ entity.ilk_gorulme }}</td></tr>
-  <tr><th>Son görülme</th><td class="kucuk">{{ entity.son_gorulme }}</td></tr>
-  <tr><th>Gözlem sayısı</th><td>{{ entity.gozlem_sayisi }}</td></tr>
-  <tr><th>Nitelikler</th><td class="kucuk">{{ entity.nitelikler }}</td></tr>
-</table>
 
-<section id="iliskiler" aria-labelledby="iliski-baslik">
-<h2 id="iliski-baslik">İlişkili varlıklar ({{ iliskiler.toplam }} ilişki)</h2>
-<p class="kucuk">Her satır kaynak → hedef yönünde okunur. Giden: bu varlık kaynak;
-  gelen: bu varlık hedef. Aynı komşuyla farklı ilişkiler ayrı satırlarda gösterilir.</p>
-{% if iliskiler.toplam %}
-<div class="tablo-kapsayici">
-<table>
-  <thead><tr><th scope="col">Yön</th><th scope="col">Kaynak</th><th scope="col">İlişki →</th>
-    <th scope="col">Hedef</th><th scope="col">İlk görülme</th><th scope="col">Son görülme</th></tr></thead>
-  <tbody>
-  {% for il, kaynak, hedef in iliskiler.satirlar %}
-  <tr>
-    <td>{{ 'Giden →' if kaynak.id == entity.id else 'Gelen ←' }}</td>
-    <td><span class="kucuk">{{ kaynak.tip }}</span><br>
-      {% if kaynak.id == entity.id %}<strong>{{ kaynak.deger_ham }}</strong> <span class="kucuk">(bu varlık)</span>
-      {% else %}<a href="/entities/{{ kaynak.id }}">{{ kaynak.deger_ham }}</a>{% endif %}</td>
-    <td>{{ iliski_adlari.get(il.tip, il.tip) }}<br><code class="kucuk">{{ il.tip }}</code></td>
-    <td><span class="kucuk">{{ hedef.tip }}</span><br>
-      {% if hedef.id == entity.id %}<strong>{{ hedef.deger_ham }}</strong> <span class="kucuk">(bu varlık)</span>
-      {% else %}<a href="/entities/{{ hedef.id }}">{{ hedef.deger_ham }}</a>{% endif %}</td>
-    <td class="kucuk">{{ il.ilk_gorulme.strftime('%Y-%m-%d %H:%M') }}</td>
-    <td class="kucuk">{{ il.son_gorulme.strftime('%Y-%m-%d %H:%M') }}</td>
-  </tr>
-  {% endfor %}
-  </tbody>
-</table>
+{% block ust_eylem %}
+<a class="dugme" href="/investigations/{{ entity.investigation_id }}">←
+  {{ inv.ad if inv else "araştırma" }}</a>
+{% endblock %}
+
+{% block icerik %}
+
+<h1><span class="rozet rozet-notr">{{ entity.tip }}</span>
+  <span class="deger">{{ entity.deger_ham }}</span></h1>
+<p class="silik">{{ entity.gozlem_sayisi }} gözlem ·
+  {{ iliskiler.toplam }} ilişki ·
+  ilk görülme {{ entity.ilk_gorulme.strftime("%d.%m.%Y %H:%M") }}</p>
+
+<div class="kart" style="margin-top:20px">
+  <div class="kart-bas"><h2>Künye</h2></div>
+  <div class="tablo-kapsayici">
+    <table class="anahtar-deger">
+      <tbody>
+        <tr><th>Normalize değer</th><td class="deger">{{ entity.deger_norm }}</td></tr>
+        <tr><th>Ham değer</th><td class="deger">{{ entity.deger_ham }}</td></tr>
+        <tr><th>İlk görülme</th><td>{{ entity.ilk_gorulme.strftime("%d.%m.%Y %H:%M:%S") }}</td></tr>
+        <tr><th>Son görülme</th><td>{{ entity.son_gorulme.strftime("%d.%m.%Y %H:%M:%S") }}</td></tr>
+        <tr><th>Gözlem sayısı</th><td>{{ entity.gozlem_sayisi }}</td></tr>
+        <tr><th>Nitelikler</th><td class="kucuk">{{ entity.nitelikler or "—" }}</td></tr>
+      </tbody>
+    </table>
+  </div>
 </div>
-<nav aria-label="İlişki sayfaları">
-  {% if iliskiler.sayfa > 1 %}<a href="?iliski_sayfa={{ iliskiler.sayfa - 1 }}#iliskiler">← Önceki</a>{% endif %}
-  <span>Sayfa {{ iliskiler.sayfa }} / {{ iliskiler.sayfa_sayisi }}</span>
-  {% if iliskiler.sayfa < iliskiler.sayfa_sayisi %}<a href="?iliski_sayfa={{ iliskiler.sayfa + 1 }}#iliskiler">Sonraki →</a>{% endif %}
-</nav>
-{% else %}
-<p class="kucuk">Bu varlık için henüz ilişki kaydı yok. Gözlemler aşağıdaki kanıt zincirinde gösterilir.</p>
-{% endif %}
+
+<section class="kart" id="iliskiler" aria-labelledby="iliski-baslik">
+  <div class="kart-bas">
+    <h2 id="iliski-baslik">İlişkili varlıklar</h2>
+    <span class="rozet rozet-notr">{{ iliskiler.toplam }}</span>
+    <span class="ust-ara"></span>
+    <span class="kucuk">Her satır kaynak → hedef yönünde okunur.</span>
+  </div>
+
+  {% if iliskiler.toplam %}
+  <div class="tablo-kapsayici">
+    <table>
+      <thead>
+        <tr><th scope="col">Yön</th><th scope="col">Kaynak</th><th scope="col">İlişki</th>
+          <th scope="col">Hedef</th><th scope="col">İlk görülme</th><th scope="col">Son görülme</th></tr>
+      </thead>
+      <tbody>
+      {% for il, kaynak, hedef in iliskiler.satirlar %}
+      <tr>
+        <td class="yon">{{ 'Giden →' if kaynak.id == entity.id else 'Gelen ←' }}</td>
+        <td>
+          <span class="rozet rozet-notr">{{ kaynak.tip }}</span>
+          <div class="deger" style="margin-top:3px">
+            {% if kaynak.id == entity.id %}<strong>{{ kaynak.deger_ham }}</strong>
+              <span class="kucuk">(bu varlık)</span>
+            {% else %}<a href="/entities/{{ kaynak.id }}">{{ kaynak.deger_ham }}</a>{% endif %}
+          </div>
+        </td>
+        <td>
+          <span class="rozet rozet-vurgu">{{ iliski_adlari.get(il.tip, il.tip) }}</span>
+          <div class="kucuk" style="margin-top:3px"><code>{{ il.tip }}</code></div>
+        </td>
+        <td>
+          <span class="rozet rozet-notr">{{ hedef.tip }}</span>
+          <div class="deger" style="margin-top:3px">
+            {% if hedef.id == entity.id %}<strong>{{ hedef.deger_ham }}</strong>
+              <span class="kucuk">(bu varlık)</span>
+            {% else %}<a href="/entities/{{ hedef.id }}">{{ hedef.deger_ham }}</a>{% endif %}
+          </div>
+        </td>
+        <td class="kucuk">{{ il.ilk_gorulme.strftime('%d.%m.%Y %H:%M') }}</td>
+        <td class="kucuk">{{ il.son_gorulme.strftime('%d.%m.%Y %H:%M') }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="sayfalama">
+    <span>Sayfa {{ iliskiler.sayfa }} / {{ iliskiler.sayfa_sayisi }}</span>
+    <span class="dugme-sirasi">
+      {% if iliskiler.sayfa > 1 %}
+      <a class="dugme" href="?iliski_sayfa={{ iliskiler.sayfa - 1 }}#iliskiler">← Önceki</a>{% endif %}
+      {% if iliskiler.sayfa < iliskiler.sayfa_sayisi %}
+      <a class="dugme" href="?iliski_sayfa={{ iliskiler.sayfa + 1 }}#iliskiler">Sonraki →</a>{% endif %}
+    </span>
+  </div>
+  {% else %}
+  <p class="bos">Bu varlık için henüz ilişki kaydı yok.</p>
+  {% endif %}
 </section>
 
-<h2>Kanıt zinciri</h2>
-<!-- Ilke 2: her bulgu ham ciktisina kadar izlenebilir. -->
-<table>
-  <tr><th>Tool</th><th>Sürüm</th><th>Güven</th><th>Zaman</th>
-      <th>Ham çıktı</th><th>Çıktı içindeki yer</th><th>Veri</th></tr>
-  {% for o in gozlemler %}
-  <tr>
-    <td>{{ o.tool }}</td>
-    <td class="kucuk">{{ o.tool_version }}</td>
-    <td>{{ o.guven }}</td>
-    <td class="kucuk">{{ o.zaman.strftime("%Y-%m-%d %H:%M:%S") }}</td>
-    <td class="kucuk"><a href="/observations/{{ o.id }}/raw">ham çıktıyı gör</a><br>{{ o.ham_cikti_ref }}</td>
-    <td class="kucuk">{{ o.ham_cikti_yol or "—" }}</td>
-    <td class="kucuk">{{ o.veri }}</td>
-  </tr>
+<div class="kart">
+  {# Ilke 2: her bulgu ham ciktisina kadar izlenebilir. #}
+  <div class="kart-bas">
+    <h2>Kanıt zinciri</h2>
+    <span class="rozet rozet-notr">{{ gozlemler|length }} gözlem</span>
+    <span class="ust-ara"></span>
+    <span class="kucuk">Her gözlem, üretildiği ham çıktıya kadar izlenebilir.</span>
+  </div>
+  {% if gozlemler %}
+  <div class="tablo-kapsayici">
+    <table>
+      <thead>
+        <tr><th>Tool</th><th>Sürüm</th><th>Güven</th><th>Zaman</th>
+            <th>Ham çıktı</th><th>Çıktı içindeki yer</th><th>Veri</th></tr>
+      </thead>
+      <tbody>
+      {% for o in gozlemler %}
+      <tr>
+        <td class="deger">{{ o.tool }}</td>
+        <td class="kucuk">{{ o.tool_version }}</td>
+        <td><span class="rozet rozet-notr">{{ o.guven }}</span></td>
+        <td class="kucuk">{{ o.zaman.strftime("%d.%m.%Y %H:%M:%S") }}</td>
+        <td><a href="/observations/{{ o.id }}/raw">ham çıktıyı gör</a>
+          <div class="kucuk">{{ o.ham_cikti_ref }}</div></td>
+        <td class="kucuk">{{ o.ham_cikti_yol or "—" }}</td>
+        <td class="kucuk">{{ o.veri }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
   {% else %}
-  <tr><td colspan="7" class="kucuk">gözlem yok</td></tr>
-  {% endfor %}
-</table>
+  <p class="bos">Gözlem yok. Bu varlık bir ilişkiden türemiş olabilir.</p>
+  {% endif %}
+</div>
 {% endblock %}

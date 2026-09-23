@@ -1,60 +1,157 @@
+{# HTMX ile yenilenen bolum. Grup ve sayfa URL'de tasinir, yenilemede korunur.
+
+   YENILEME YALNIZCA CALISAN IS VARKEN. Surekli yenilemek uc sorun yaratiyordu:
+   analist 100 satirlik tabloyu okurken tablo iki saniyede bir bastan ciziliyor,
+   metin secimi kayboluyor ve 580 varlikli bir arastirmada toplu okuma sorgusu
+   bos yere tekrarlaniyordu (docs/on-eleme.md bu maliyeti not ediyor).
+   Is kalmadiginda sayfa durur; yeni is kuyruga atildiginda POST zaten
+   sayfayi yeniden yukler. #}
+{% set calisiyor = isler | selectattr("durum", "in", ["queued", "running"]) | list | length %}
 <div id="sonuclar" hx-get="/investigations/{{ inv_id }}/entities?grup={{ grup }}&amp;sayfa={{ sayfa }}"
-     hx-trigger="every 2s" hx-swap="outerHTML" hx-sync="this:replace">
-<h2>Varlıklar ({{ toplam }})</h2>
-<p class="kucuk">Ön eleme yalnızca sıralama ve gruplama yapar. Hiçbir varlık silinmez.
-  Öncelik grubu risk skoru değildir. Kaynak sayısı farklı tool sayısıdır; bağımsız doğrulama garantisi değildir.</p>
-<p class="kucuk"><strong>AI skorları önceliklendirme amaçlıdır. Doğrulama sorumluluğu analiste aittir.</strong>
-  Skor sıralamayı değiştirmez ve hiçbir varlığı gizlemez; yalnızca bir sütun ekler.</p>
-<nav aria-label="Varlık grupları">
-  <a href="/investigations/{{ inv_id }}?grup=tumu" {% if grup == 'tumu' %}aria-current="page"{% endif %}>Tüm varlıklar ({{ toplam }})</a>
-  {% for kod, ad in gruplar.items() %}
-  · <a href="/investigations/{{ inv_id }}?grup={{ kod }}" {% if grup == kod %}aria-current="page"{% endif %}>{{ ad }} ({{ sayim[kod] }})</a>
-  {% endfor %}
-</nav>
-<p class="kucuk">Görünüm: {{ gruplar.get(grup, 'Tüm varlıklar') }} · {{ secilen_sayisi }} varlık · Sayfa {{ sayfa }} / {{ sayfa_sayisi }}</p>
-<table>
-  <tr><th>Grup / gerekçe</th><th>Tip</th><th>Değer</th><th>Gözlem</th><th>Farklı tool</th><th>Kaynak tool</th><th>AI skoru</th><th></th></tr>
-  {% for s in satirlar %}
-  {% set e = s.entity %}
-  {% set a = skorlar.get(e.id) %}
-  <tr>
-    <td>{{ gruplar[s.on_eleme.grup] }}<div class="kucuk">{{ s.on_eleme.gerekceler|join(' · ') }}</div></td>
-    <td>{{ e.tip }}</td><td>{{ e.deger_ham }}</td><td>{{ e.gozlem_sayisi }}</td>
-    <td>{{ s.tools|length }}</td><td class="kucuk">{{ s.tools|join(', ') or '—' }}</td>
-    {# Skor SIRALAMAYI DEGISTIRMEZ: siralama deterministik on elemenindir.
-       AI yalnizca bir sutun ekler; veriyi de sirayi da ele gecirmez. #}
-    <td>{% if a %}{{ a.skor }}<div class="kucuk">{{ a.gerekce }}{% if a.etiketler %}
-      · {{ a.etiketler|join(', ') }}{% endif %}<br>{{ a.model }}</div>{% else %}—{% endif %}</td>
-    <td class="kucuk"><a href="/entities/{{ e.id }}">kaynağı gör</a></td>
-  </tr>
+     {% if calisiyor %}hx-trigger="every 2s"{% endif %}
+     hx-swap="outerHTML" hx-sync="this:replace">
+
+<div class="kart">
+  <div class="kart-bas">
+    <h2>Varlıklar</h2>
+    <span class="rozet rozet-notr">{{ toplam }}</span>
+    <span class="ust-ara"></span>
+    <span class="kucuk">Ön eleme yalnızca sıralar ve gruplar; hiçbir varlık silinmez.</span>
+  </div>
+
+  <nav class="sekmeler" aria-label="Varlık grupları">
+    <a class="sekme" href="/investigations/{{ inv_id }}?grup=tumu"
+       {% if grup == 'tumu' %}aria-current="page"{% endif %}>Tümü
+      <span class="sayi">{{ toplam }}</span></a>
+    {% for kod, ad in gruplar.items() %}
+    <a class="sekme" href="/investigations/{{ inv_id }}?grup={{ kod }}"
+       {% if grup == kod %}aria-current="page"{% endif %}>{{ ad }}
+      <span class="sayi">{{ sayim[kod] }}</span></a>
+    {% endfor %}
+  </nav>
+
+  {% if satirlar %}
+  <div class="tablo-kapsayici">
+    <table>
+      <thead>
+        <tr>
+          <th>Varlık</th>
+          <th>Kaynak</th>
+          <th>AI skoru</th>
+          <th>Grup / gerekçe</th>
+          <th class="eylem">Kanıt</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for s in satirlar %}
+      {% set e = s.entity %}
+      {% set a = skorlar.get(e.id) %}
+      <tr>
+        <td>
+          <span class="rozet rozet-notr">{{ e.tip }}</span>
+          <div class="deger" style="margin-top:3px">{{ e.deger_ham }}</div>
+        </td>
+        <td>
+          <span class="rozet {{ 'rozet-ok' if s.tools|length > 1 else 'rozet-notr' }}">
+            {{ s.tools|length }} tool</span>
+          <div class="kucuk kaynak-liste" style="margin-top:3px"
+               title="{{ s.tools|join(', ') }}">{{ s.tools|join(', ') or '—' }}</div>
+          <div class="kucuk">{{ e.gozlem_sayisi }} gözlem</div>
+        </td>
+        {# Skor SIRALAMAYI DEGISTIRMEZ: siralama deterministik on elemenindir.
+           AI yalnizca bir sutun ekler; veriyi de sirayi da ele gecirmez. #}
+        <td>
+          {% if a %}
+          {% set bant = 's90' if a.skor >= 90 else ('s80' if a.skor >= 80 else
+                        ('s70' if a.skor >= 70 else ('s50' if a.skor >= 50 else 's00'))) %}
+          <div class="skor {{ bant }}">
+            <span class="skor-sayi">{{ a.skor }}</span>
+            <span class="skor-cubuk"><i style="width: {{ a.skor }}%"></i></span>
+          </div>
+          <div class="gerekce">{{ a.gerekce }}</div>
+          {% if a.etiketler %}
+          <div class="etiketler">
+            {% for et in a.etiketler %}<span class="etiket">{{ et }}</span>{% endfor %}
+          </div>
+          {% endif %}
+          {% else %}
+          <span class="kucuk">—</span>
+          {% endif %}
+        </td>
+        <td>
+          <span class="rozet rozet-vurgu">{{ gruplar[s.on_eleme.grup] }}</span>
+          <div class="gerekce">{{ s.on_eleme.gerekceler|join(' · ') }}</div>
+        </td>
+        <td class="eylem"><a href="/entities/{{ e.id }}">kaynağı gör</a></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="sayfalama">
+    <span>{{ gruplar.get(grup, 'Tüm varlıklar') }} · {{ secilen_sayisi }} varlık ·
+      Sayfa {{ sayfa }} / {{ sayfa_sayisi }}</span>
+    <span class="dugme-sirasi">
+      {% if sayfa > 1 %}
+      <a class="dugme" href="/investigations/{{ inv_id }}?grup={{ grup }}&amp;sayfa={{ sayfa - 1 }}">← Önceki</a>
+      {% endif %}
+      {% if sayfa < sayfa_sayisi %}
+      <a class="dugme" href="/investigations/{{ inv_id }}?grup={{ grup }}&amp;sayfa={{ sayfa + 1 }}">Sonraki →</a>
+      {% endif %}
+    </span>
+  </div>
   {% else %}
-  <tr><td colspan="8">Bu görünümde varlık yok.</td></tr>
-  {% endfor %}
-</table>
-<nav aria-label="Varlık sayfaları">
-  {% if sayfa > 1 %}<a href="/investigations/{{ inv_id }}?grup={{ grup }}&amp;sayfa={{ sayfa - 1 }}">Önceki</a>{% endif %}
-  {% if sayfa < sayfa_sayisi %}<a href="/investigations/{{ inv_id }}?grup={{ grup }}&amp;sayfa={{ sayfa + 1 }}">Sonraki</a>{% endif %}
-</nav>
-<h2>İşler</h2>
-<table>
-  <tr><th>Tool</th><th>Hedef</th><th>Durum</th><th>Deneme</th><th>Derinlik</th><th>Süre</th><th>Hata</th></tr>
-  {% for j in isler %}
-  <tr>
-    <td>{{ j.tool }}</td>
-    <td class="kucuk">{{ j.hedef_deger }}</td>
-    <td class="durum {{ j.durum }}">{{ j.durum }}</td>
-    <!-- Birden fazla deneme vurgulanir: "israrla denendi ama olmadi" bilgisi
-         analistin kararini degistirir. -->
-    <td{% if j.deneme_sayisi and j.deneme_sayisi > 1 %} class="failed"{% endif %}>
-      {{ j.deneme_sayisi or "" }}{% if j.deneme_sayisi and j.deneme_sayisi > 1 %}x{% endif %}
-    </td>
-    <td>{{ j.derinlik }}</td>
-    <td class="kucuk">{{ (j.sure_ms ~ " ms") if j.sure_ms else "" }}</td>
-    <td class="kucuk">{{ (j.hata_mesaji or "")[:120] }}</td>
-  </tr>
+  <p class="bos">Bu görünümde varlık yok. Yukarıdan bir tool çalıştırın.</p>
+  {% endif %}
+</div>
+
+<div class="kart">
+  <div class="kart-bas">
+    <h2>İşler</h2>
+    <span class="ust-ara"></span>
+    {% set sayim_durum = {} %}
+    {% for j in isler %}
+      {% if sayim_durum.update({j.durum: sayim_durum.get(j.durum, 0) + 1}) %}{% endif %}
+    {% endfor %}
+    {% for d, n in sayim_durum.items() %}
+      <span class="durum {{ d }}">{{ d }} {{ n }}</span>
+    {% endfor %}
+    {% if calisiyor %}<span class="kucuk">canlı yenileniyor…</span>
+    {% elif isler %}<span class="kucuk">tur durdu</span>{% endif %}
+  </div>
+
+  {% if isler %}
+  <div class="tablo-kapsayici" style="max-height: 420px; overflow-y: auto;">
+    <table>
+      <thead>
+        <tr><th>Tool</th><th>Hedef</th><th>Durum</th><th>Deneme</th>
+            <th>Derinlik</th><th>Süre</th><th>Hata</th></tr>
+      </thead>
+      <tbody>
+      {% for j in isler %}
+      <tr>
+        <td class="deger">{{ j.tool }}</td>
+        <td class="kucuk">{{ j.hedef_deger }}</td>
+        <td><span class="durum {{ j.durum }}">{{ j.durum }}</span></td>
+        {# Birden fazla deneme vurgulanir: "israrla denendi ama olmadi" bilgisi
+           analistin kararini degistirir. #}
+        <td>
+          {% if j.deneme_sayisi and j.deneme_sayisi > 1 %}
+            <span class="rozet rozet-hata">{{ j.deneme_sayisi }}x</span>
+          {% else %}<span class="kucuk">{{ j.deneme_sayisi or "—" }}</span>{% endif %}
+        </td>
+        <td class="kucuk">{{ j.derinlik }}</td>
+        <td class="kucuk">{{ (j.sure_ms ~ " ms") if j.sure_ms else "—" }}</td>
+        <td class="kucuk">{{ (j.hata_mesaji or "")[:120] }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
   {% else %}
-  <tr><td colspan="7" class="kucuk">henüz iş yok</td></tr>
-  {% endfor %}
-</table>
+  <p class="bos">Henüz iş yok.</p>
+  {% endif %}
+</div>
 
 </div>

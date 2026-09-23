@@ -4,44 +4,30 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block baslik %}OSINT Orkestrasyon{% endblock %}</title>
+  {# htmx ve CSS CDN'den DEGIL yerelden servis edilir: sistem kapali calisir
+     (VPN/Tailscale arkasi), dis ag olmadan da arayuz tam acilmalidir. #}
+  <link rel="stylesheet" href="/static/app.css">
   <script src="/static/htmx.min.js"></script>
-  <style>
-    body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-           margin: 0; padding: 1.5rem; background: #fafafa; color: #111; }
-    a { color: #0645ad; }
-    h1, h2, h3 { margin: 0 0 .6rem; font-size: 1.05rem; }
-    table { border-collapse: collapse; width: 100%; margin: .5rem 0 1.2rem; }
-    th, td { border: 1px solid #ccc; padding: .3rem .5rem; text-align: left;
-             font-size: .82rem; vertical-align: top; }
-    th { background: #eee; }
-    form { margin: .5rem 0 1.2rem; }
-    label { display: block; margin: .3rem 0; font-size: .82rem; }
-    input[type=text] { width: 22rem; padding: .25rem; font: inherit; }
-    button { padding: .3rem .8rem; font: inherit; cursor: pointer; }
-    .uyari { background: #fff3cd; border: 1px solid #e0c068; padding: .5rem .7rem;
-             margin-bottom: 1rem; font-size: .82rem; }
-    .kucuk { font-size: .74rem; color: #555; word-break: break-all; }
-    .durum { font-weight: bold; }
-    .queued { color: #777; } .running { color: #0645ad; }
-    .success { color: #157347; } .failed, .timeout { color: #b02a37; }
-    .skipped { color: #915e00; }
-    section { margin: 1.2rem 0; }
-    .ham-cikti { white-space: pre-wrap; overflow-wrap: anywhere; padding: 1rem;
-                 border: 1px solid #ccc; background: #fff; max-height: 70vh; overflow: auto; }
-    .tablo-kapsayici { overflow-x: auto; }
-    .tablo-kapsayici td { overflow-wrap: anywhere; min-width: 7rem; }
-    nav { margin: .6rem 0 1rem; }
-    nav [aria-current=page] { font-weight: bold; text-decoration-thickness: 2px; }
-    a:focus-visible, button:focus-visible { outline: 2px solid #0645ad; outline-offset: 3px; }
-  </style>
 </head>
 <body>
+  <header class="ust">
+    <div class="ust-ic">
+      <a class="marka" href="/"><span class="marka-nokta"></span>OSINT Orkestrasyon</a>
+      <span class="ust-ara"></span>
+      {% block ust_eylem %}{% endblock %}
+    </div>
+  </header>
+
   <!-- ZORUNLU UYARI - docs/kapsam.md Bolum 9. KALDIRILMAZ. -->
-  <div class="uyari">
-    <strong>Yalnızca yetkili olduğunuz hedeflerde kullanın.</strong>
-    AI skorları önceliklendirme amaçlıdır; doğrulama sorumluluğu analiste aittir.
+  <div class="uyari-serit">
+    <div>
+      <strong>Yalnızca yetkili olduğunuz hedeflerde kullanın.</strong>
+      <span>AI skorları önceliklendirme amaçlıdır; doğrulama sorumluluğu analiste aittir.</span>
+    </div>
   </div>
-  <p class="kucuk"><a href="/">&larr; araştırmalar</a></p>
-  {% block icerik %}{% endblock %}
+
+  <main class="kabuk">
+    {% block icerik %}{% endblock %}
+  </main>
 </body>
 </html>
