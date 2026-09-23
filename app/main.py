@@ -23,6 +23,7 @@ from app.models import Observation as ObservationRow
 from app.normalize import NormalizeError, domain_mi, kok_domain, normalize
 from app.normalize import EntityType
 from app.tools._base import ToolRegistry
+from app.ai.skorla import son_skorlar
 from app.triage import GRUPLAR
 from app.triage_query import listele, sayfala
 from app.relationships import ILISKI_ADLARI, komsular
@@ -223,8 +224,23 @@ def varliklar(
             **gorunum,
             "gruplar": GRUPLAR,
             "isler": _isler(session, inv_id),
+            "skorlar": son_skorlar(session, inv_id),
         },
     )
+
+
+@app.post("/investigations/{inv_id}/skorla")
+def skorlat(inv_id: uuid.UUID, session: Session = Depends(oturum)):
+    """AI skorlamasını kuyruğa alır. Skorlar HTMX yenilemesiyle tabloda belirir.
+
+    Skorlama bir `job` satırı yazmaz: tool koşumu değil, mevcut veri üzerinde
+    görünüm hesabıdır (bkz. `worker.ai_skorla`).
+    """
+    _arastirma(session, inv_id)
+    from app.worker import skorlamayi_gonder
+
+    skorlamayi_gonder(inv_id)
+    return RedirectResponse(f"/investigations/{inv_id}", status_code=303)
 
 
 @app.get("/entities/{entity_id}", response_class=HTMLResponse)

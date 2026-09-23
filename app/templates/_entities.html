@@ -3,6 +3,8 @@
 <h2>Varlıklar ({{ toplam }})</h2>
 <p class="kucuk">Ön eleme yalnızca sıralama ve gruplama yapar. Hiçbir varlık silinmez.
   Öncelik grubu risk skoru değildir. Kaynak sayısı farklı tool sayısıdır; bağımsız doğrulama garantisi değildir.</p>
+<p class="kucuk"><strong>AI skorları önceliklendirme amaçlıdır. Doğrulama sorumluluğu analiste aittir.</strong>
+  Skor sıralamayı değiştirmez ve hiçbir varlığı gizlemez; yalnızca bir sütun ekler.</p>
 <nav aria-label="Varlık grupları">
   <a href="/investigations/{{ inv_id }}?grup=tumu" {% if grup == 'tumu' %}aria-current="page"{% endif %}>Tüm varlıklar ({{ toplam }})</a>
   {% for kod, ad in gruplar.items() %}
@@ -11,17 +13,22 @@
 </nav>
 <p class="kucuk">Görünüm: {{ gruplar.get(grup, 'Tüm varlıklar') }} · {{ secilen_sayisi }} varlık · Sayfa {{ sayfa }} / {{ sayfa_sayisi }}</p>
 <table>
-  <tr><th>Grup / gerekçe</th><th>Tip</th><th>Değer</th><th>Gözlem</th><th>Farklı tool</th><th>Kaynak tool</th><th></th></tr>
+  <tr><th>Grup / gerekçe</th><th>Tip</th><th>Değer</th><th>Gözlem</th><th>Farklı tool</th><th>Kaynak tool</th><th>AI skoru</th><th></th></tr>
   {% for s in satirlar %}
   {% set e = s.entity %}
+  {% set a = skorlar.get(e.id) %}
   <tr>
     <td>{{ gruplar[s.on_eleme.grup] }}<div class="kucuk">{{ s.on_eleme.gerekceler|join(' · ') }}</div></td>
     <td>{{ e.tip }}</td><td>{{ e.deger_ham }}</td><td>{{ e.gozlem_sayisi }}</td>
     <td>{{ s.tools|length }}</td><td class="kucuk">{{ s.tools|join(', ') or '—' }}</td>
+    {# Skor SIRALAMAYI DEGISTIRMEZ: siralama deterministik on elemenindir.
+       AI yalnizca bir sutun ekler; veriyi de sirayi da ele gecirmez. #}
+    <td>{% if a %}{{ a.skor }}<div class="kucuk">{{ a.gerekce }}{% if a.etiketler %}
+      · {{ a.etiketler|join(', ') }}{% endif %}<br>{{ a.model }}</div>{% else %}—{% endif %}</td>
     <td class="kucuk"><a href="/entities/{{ e.id }}">kaynağı gör</a></td>
   </tr>
   {% else %}
-  <tr><td colspan="7">Bu görünümde varlık yok.</td></tr>
+  <tr><td colspan="8">Bu görünümde varlık yok.</td></tr>
   {% endfor %}
 </table>
 <nav aria-label="Varlık sayfaları">

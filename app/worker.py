@@ -83,6 +83,55 @@ def kuyruga_gonder(job_id) -> bool:
         return False
 
 
+@celery_app.task(name="osint.ai_skorla", bind=True)
+def ai_skorla(self, inv_id: str) -> dict:  # noqa: ANN001
+    """Bir araştırmayı AI ile skorlar. ASLA İSTİSNA SIZDIRMAZ.
+
+    Tool işlerinden AYRI tutulur ve `job` satırı yazmaz: skorlama bir keşif
+    adımı değil, mevcut veri üzerinde bir görünüm hesabıdır. Zincirleme
+    tetiklemez, `uq_job_tekrar` kısıtına da girmez.
+    """
+    from app.ai.provider import GeminiProvider
+    from app.ai.skorla import skorla
+
+    try:
+        saglayici = GeminiProvider()
+        if not saglayici.hazir:
+            # Eksik yapılandırma arıza değildir (kapsam.md Bölüm 5.3).
+            log.warning("GEMINI_API_KEY tanımlı değil; skorlama atlandı")
+            return {"investigation_id": inv_id, "durum": "skipped"}
+
+        with SessionLocal() as session:
+            ozet = skorla(session, uuid.UUID(str(inv_id)), saglayici)
+            session.commit()
+        log.info(
+            "skorlama: %d skor, %d hipotez, %d önbellek, %d halüsinasyon",
+            ozet.skor_yazilan, ozet.hipotez_yazilan,
+            ozet.atlanan_onbellek, ozet.halusinasyon,
+        )
+        return {
+            "investigation_id": inv_id,
+            "durum": "success" if ozet.basarili or not ozet.hatalar else "failed",
+            "skor": ozet.skor_yazilan,
+            "hipotez": ozet.hipotez_yazilan,
+            "halusinasyon": ozet.halusinasyon,
+            "hatalar": ozet.hatalar[:5],
+        }
+    except Exception as e:  # noqa: BLE001 — worker çökmemeli
+        log.exception("skorlama %s beklenmedik hata", inv_id)
+        return {"investigation_id": inv_id, "durum": "failed", "hata": str(e)}
+
+
+def skorlamayi_gonder(inv_id) -> bool:
+    """Celery'ye skorlama görevi gönderir. Broker yoksa istisna fırlatmaz."""
+    try:
+        celery_app.send_task("osint.ai_skorla", args=[str(inv_id)])
+        return True
+    except Exception:  # noqa: BLE001
+        log.warning("araştırma %s skorlamaya gönderilemedi", inv_id)
+        return False
+
+
 def _simdi() -> datetime:
     return datetime.now(timezone.utc)
 

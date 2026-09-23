@@ -19,6 +19,10 @@ class VarlikSatiri:
     entity: Entity
     tools: tuple[str, ...]
     on_eleme: OnEleme
+    # Ham sinyaller de taşınır. AI katmanı bunlara ihtiyaç duyar ve Türkçe
+    # gerekçe metninden geri ayıklamak kırılgandır: metin değişince sessizce bozulur.
+    isaretler: frozenset[str] = frozenset()
+    iliskili: bool = True
 
 
 def listele(session: Session, inv_id: UUID, kok_hedef: str):
@@ -59,7 +63,7 @@ def listele(session: Session, inv_id: UUID, kok_hedef: str):
             e.tip, len(tools), row.iliskili, isaretler,
             kok=e.tip == "domain" and e.deger_norm == kok_hedef,
         )
-        satirlar.append(VarlikSatiri(e, tools, on_eleme))
+        satirlar.append(VarlikSatiri(e, tools, on_eleme, isaretler, bool(row.iliskili)))
     # Tek tool'un binlerce tekrarı sıralamayı değiştirmez. Tam bağlayıcı sıra
     # aynı veri için DB dönüş sırasından bağımsızdır.
     satirlar.sort(key=lambda s: (

@@ -362,16 +362,52 @@ Graph görselleştirme **v1'de YOK** (bkz. Bölüm 9).
   worker sayısı kadar çoğaltırdı. `worker.runner()` içinden bağlanır.
   Sayaçlar `redisdata` volume'ünde AOF ile kalıcı.
 
-### Hafta 6 — AI katmanı
+### Hafta 6 — AI katmanı (KOD TAMAM, CANLI ÇALIŞTIRILMADI)
 
-**Hafta 4'ün ÖN KOŞULU budur:** 17 bin varlık modele gönderilemez (kota, maliyet,
-süre). Ön eleme oturmadan bu haftaya geçilmez.
+| Dosya | İçerik |
+|---|---|
+| `app/ai/prompt.py` | **SAF** — prompt kurma, JSON şema, `dogrula()` |
+| `app/ai/provider.py` | `AiProvider` protokolü, `GeminiProvider`, `SahteProvider` |
+| `app/ai/skorla.py` | Akış: ön eleme → model → doğrulama → `assessment` |
+| `worker.ai_skorla` | Celery görevi; `job` satırı YAZMAZ |
 
-- `app/ai/provider.py` — Gemini; provider soyutlaması (Ollama sonradan)
-- Ham tool çıktısı **doğrudan modele gönderilmez**: ön elemeden geçmiş kompakt
-  liste + `<untrusted_data>` sınırlayıcısı + structured output (JSON şema)
-- Dönen her `entity_id` **DB'de doğrulanır** (halüsinasyon filtresi)
-- AI yalnızca `assessment` satırı ekler; entity silmez, değiştirmez
+**Prompt injection savunması — üç katman:**
+
+1. Sistem prompt'u bloğu açıkça VERİ ilan eder; içindeki talimat uygulanmaz.
+2. Sınırlayıcı **kimliklidir ve veriye göre değişir**
+   (`<untrusted_data id="a3f9…">`). Sabit olsaydı saldırgan kendi subdomain
+   adına kapanış etiketini yazıp bloktan çıkabilirdi.
+3. Değerlerdeki `<` `>` kaçırılır — etiket parçalanır, kaçış imkânsızlaşır.
+
+Model, blok içinde talimat görürse uygulamaz; gerekçede belirtir ve skoru
+**yükseltir** (gizlenmeye çalışan varlık ilgi çekicidir).
+
+**Halüsinasyon filtresi — iki katman:**
+
+1. Modele UUID değil `v1`, `v2` … etiketleri gider. Uydurulan etiket haritada
+   yoktur, düşer. Filtre "biçim doğru mu" değil **"bu turda gönderdim mi"**
+   sorusuna dayanır. Yan fayda: girdi token'ı ~üçte bire iner.
+2. Yazımdan hemen önce `entity.id` + `investigation_id` DB'den doğrulanır.
+
+**Kota koruması:** `assessment.girdi_hash` — aynı girdi + aynı
+`prompt_versiyon` ikinci kez modele gitmez. Sertifikalar (hacmin %34'ü) hiç
+gönderilmez. Yığın boyutu 120 — kota için değil **doğruluk** için: uzun
+listede model sona doğru özensizleşir.
+
+**Sınırlar:** `temperature=0`. Anahtar `x-goog-api-key` başlığında gider, URL'de
+değil; hata mesajında maskelenir. Bozuk yanıt veya sağlayıcı hatası turu
+düşürmez — bir yığın düşse diğerleri yazılır. `skorla()` **commit etmez**.
+AI yalnızca `assessment` ve `hypothesis` EKLER; hipotez `beklemede` başlar.
+Skor **sıralamayı değiştirmez**, tabloya yalnızca bir sütun ekler.
+
+**Test:** `tests/test_ai_prompt.py` (36, saf), `tests/test_ai_provider.py`
+(16, `MockTransport` — ağa çıkmaz), `tests/test_ai_skorla_db.py` (15, gerçek
+PostgreSQL).
+
+**YAPILMADI:** `GEMINI_API_KEY` boş olduğu için **canlı model hiç çağrılmadı.**
+Anahtar girilip bir tur koşulması gerekiyor; asıl sürpriz orada çıkar
+(gerçek yanıt biçimi, gerçek gecikme, gerçek kota). Rapor taslağı üretimi
+(kapsam.md 3.5 madde 3) de yazılmadı — rapor şu an şablondan üretiliyor.
 
 ### Hafta 7 — toparlama, sunum
 
