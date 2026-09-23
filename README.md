@@ -199,77 +199,204 @@ Kontrolün, işi gerçekten başlatan tek noktada olması gerekir.
 
 ## Mevcut durum
 
-**Hafta 1 tamamlandı** — temel katman ayakta:
+**Hafta 1-6 tamamlandı. 833 test geçiyor.**
 
 | Bileşen | Durum |
-|---------|-------|
-| Veri modeli, 7 tablo (SQLAlchemy 2.x) | Hazır |
+|---|---|
+| Veri modeli, 7 tablo (SQLAlchemy 2.x) + Alembic | Hazır |
 | Normalizasyon, 10 varlık tipi | Hazır |
-| Tool sözleşmesi ve registry | Hazır |
-| Alembic migration (upgrade/downgrade doğrulandı) | Hazır |
-| `upsert_entity` / `upsert_relationship` | Hazır |
-| Test sayısı | 355 |
+| Tool sözleşmesi, registry, yetenek grafiği | Hazır |
+| Container runner (izolasyon, retry, rate limit, aylık kota) | Hazır |
+| 7 çekirdek tool | Hazır |
+| Otomatik zincirleme (Celery + Redis) | Hazır |
+| Deterministik ön eleme | Hazır |
+| Varlık ilişkileri görünümü | Hazır |
+| Ham çıktı görüntüleyici, Markdown rapor | Hazır |
+| AI skorlama + korelasyon hipotezi (Gemini) | Hazır |
+| Rapor taslağının modele yazdırılması | Yapılmadı |
 
-Testlerin 343'ü normalizasyon kurallarını kapsıyor; 12'si gerçek PostgreSQL'e
-karşı koşan ingest testleri ve bunların ikisi eşzamanlılık testi (10 paralel
-thread, ayrı bağlantılar, barrier ile senkronize).
+### Tool'lar
 
-**Sırada:** Hafta 2 — dikey dilim. Arayüzden bir domain girildiğinde ilk tool'un
-container'da koşması, sonucun entity olarak veritabanına düşmesi ve ekranda
-listelenmesi. Dikey dilim çalıştığı an mimarinin tamamı (API, kuyruk, worker,
-runner, kalıcılık, arayüz) ayakta demektir. Yatay geliştirme bilinçli olarak
-ertelenmiştir.
+| Tool | Seviye | Çalıştırma | Girdi -> Çıktı |
+|---|---|---|---|
+| `subfinder` | P0 | docker | DOMAIN -> SUBDOMAIN |
+| `crtsh` | P0 | api | DOMAIN -> SUBDOMAIN, CERT |
+| `dns-resolver` | P1 | api | DOMAIN, SUBDOMAIN -> IP, SUBDOMAIN, TECH, ORG |
+| `whois-rdap` | P0 | api | DOMAIN, IP, NETBLOCK -> ORG, SUBDOMAIN, NETBLOCK, ASN |
+| `asn-bgp` | P0 | api | IP, ASN -> ASN, NETBLOCK, ORG |
+| `theharvester` | P0 | docker | DOMAIN -> EMAIL, SUBDOMAIN |
+| `shodan-lookup` | P0 | api | IP -> SERVICE, TECH, ORG (API anahtarı zorunlu) |
+
+Zincir dört katmanlı: `DOMAIN -> SUBDOMAIN -> IP -> {ASN -> NETBLOCK, SERVICE, ORG}`
+
+### Eklenti sisteminin maliyeti ölçüldü
+
+Hafta 3'ün çıktısı "altı tool eklendi" değil, **"tool eklemek ucuzladı"**dır:
+
+| Tool | Süre | Dokunulan çekirdek dosya |
+|---|---|---|
+| `crtsh` | 68 dk | 3 |
+| `dns-resolver` | 15 dk | 1 satır |
+| `whois-rdap` | 8 dk | **0** |
+| `asn-bgp` | 7 dk | **0** |
+| `theharvester` | 10 dk | **0** |
+| `shodan-lookup` | 8 dk | 2 |
+
+İlk tool'dan sonraki altısının ortalaması 9,6 dakika; dördü çekirdeğe hiç
+dokunmadı. Çekirdeğe dokunan ikisi de aynı sınıf bir boşluğu kapattı: manifest
+şemasında tanımlı olup `ToolSpec`'te karşılığı olmayan alan.
 
 ---
 
-## Kurulum
+## Gerçek veriyle ölçüm
+
+Tasarım kararları tahminle değil ölçümle verildi. `iana.org` üzerinde yedi tool
+ile tam bir tur: **580 varlık, 527 iş, 842 ilişki.**
+
+Ön elemenin tasarımını belirleyen bulgu, varlıkların **%70,7'sinin tek
+kaynaktan** gelmesiydi — ama tek kaynaklılık tipe göre çok değişiyordu:
+
+| Tip | Tek kaynaklı |
+|---|---|
+| subdomain | %0 |
+| netblock | %13 |
+| ip | %49 |
+| cert | %65 |
+
+Bu yüzden ön eleme tek bir global eşik değil, **tip bazlı eşik** kullanıyor.
+
+Ölçüm sırasında ayrıca gerçek bir hata bulundu: zincirleme işler Celery'ye hiç
+gönderilmiyordu (`send_task` yalnızca arayüzdeydi), 154 iş sonsuza kadar
+`queued` bekliyordu. Otomatik zincirleme üretimde hiç çalışmamıştı. Testler
+bunu kaçırmıştı, çünkü iş satırının *oluştuğunu* doğruluyorlardı,
+*gönderildiğini* değil.
+
+### AI skorlaması ve kalibrasyonu
+
+383 varlık skorlandı (sertifikalar modele gönderilmez), 16 korelasyon hipotezi
+üretildi, **halüsinasyon sayısı 0**.
+
+İlk turda skorlar şişti: varlıkların %27,7'si 90-100 bandındaydı. Kök neden
+tahmin edilmedi, sorguldu — **77 netblock birebir aynı gerekçeyi almıştı**
+(ortalama 65) ve 24 IP aynı cümleyle 95 almıştı. Model ayırt edemediğinde
+kurumu örüntülüyordu.
+
+Prompt v2.0 üç kural ekledi: bant bütçesi (yüzde değil adet olarak), "ayırt
+etmeyen gerekçe yüksek skor alamaz" ve tip tavanları.
+
+| Aralık | v1.0 | v2.0 |
+|---|---:|---:|
+| 90-100 | 106 (%27,7) | **13 (%3,4)** |
+| 80-89 | 32 | 19 |
+| 70-79 | 41 | 100 |
+| 50-69 | 167 | 141 |
+| 30-49 | 37 | 108 |
+| 0-29 | 0 | 2 |
+
+Kuralın tuttuğunun kanıtı: o 77 netblock v2.0'da da aynı gerekçeyi aldı, ama
+ortalaması 65'ten 30'a düştü. Üst sıra da iyileşti — v1.0'ın kaçırdığı
+`rzm-admin`, `intranet.int`, `sql.blackhole-2` gibi yönetim arayüzleri öne çıktı.
+
+Her iki turun skorları veritabanında yan yana duruyor; `assessment` yalnızca
+eklendiği için "eski prompt neden böyle demişti" sorusu cevaplanabilir kalıyor.
+
+---
+
+## Kurulum ve çalıştırma
 
 Windows / PowerShell. `pip` ve `alembic` PATH'te olmayabilir; her zaman
-`python -m ...` biçimi kullanılır.
+`python -m ...` biçimi kullanılır. PowerShell 5.1'de `&&` **çalışmaz**;
+komutlar ayrı ayrı yazılır.
 
-**1. Yapılandırmayı hazırla**
+**1. Yapılandırma**
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-`.env` içindeki `POSTGRES_PASSWORD` ve `DATABASE_URL` parolasını değiştirin.
+`.env` içinde en az şunlar doldurulur:
+
+```
+POSTGRES_PASSWORD=<kendi parolanız>
+DATABASE_URL=postgresql+psycopg://osint:<parola>@db:5432/osint
+```
+
+İsteğe bağlı: `GEMINI_API_KEY` (AI skorlaması için) ve `SHODAN_API_KEY`. Boş
+bırakılırsa ilgili özellik `skipped` döner, sistem çalışmaya devam eder.
 `.env` commit edilmez.
 
 **2. Servisleri başlat**
 
 ```powershell
-docker compose up -d db redis
+docker compose up -d
 ```
+
+`.env` değiştiğinde `restart` değil `up -d` kullanılır — `restart` ortam
+dosyasını yeniden okumaz.
 
 **3. Şemayı kur**
 
-Veritabanı `osint-data` internal ağındadır ve host'tan TCP ile erişilemez;
+Veritabanı `osint-data` internal ağındadır, host'tan TCP ile erişilemez;
 migration container içinden koşar:
 
 ```powershell
 docker compose run --rm --no-deps api python -m alembic upgrade head
 ```
 
-**4. Testler**
+**4. Arayüzü aç**
 
-Test seti ikiye ayrılır, çünkü iki farklı yere erişim isterler:
+http://127.0.0.1:8000
+
+`localhost` değil `127.0.0.1` yazılır: Windows'ta `localhost` önce IPv6'ya
+(`::1`) çözülür, Docker portları yalnızca IPv4'e yayınlar ve her bağlantı
+100 saniyelik bir TCP zaman aşımını bekler.
+
+**5. Kullanım**
+
+1. Ana sayfada araştırma oluşturun: bir ad ve kök domain. Yalnızca araştırma
+   yetkiniz olan bir hedef girin.
+2. Araştırma sayfasında bir tool seçip **Kuyruğa at**. `subfinder` veya `crtsh`
+   iyi bir başlangıçtır.
+3. Varlık tablosu iki saniyede bir kendini yeniler. İlk tool bittiğinde
+   zincirleme kendiliğinden başlar: bulunan her subdomain DNS'e, her IP ASN'e
+   ve WHOIS'e gider. Derinlik 3'te durur.
+4. Her satırdaki **kaynağı gör** bağlantısı gözlem zincirini ve ham çıktıyı açar.
+5. Tur durulduğunda **Skorlamayı kuyruğa at** ile AI skorlaması çalışır
+   (anahtar tanımlıysa). Varlıklar 120'lik yığınlar hâlinde gider.
+6. **Markdown raporunu indir** ile tüm varlıklar, ilişkiler, işler ve skorlar
+   tek dosyada alınır.
+
+İlk tur küçük bir hedefte denenmelidir. `example.com` tek tool'la 17.000 varlık
+üretmişti; `iana.org` yedi tool'la 580. Ölçek hedefe göre otuz kat değişir.
+
+**6. Testler**
+
+Test seti üçe ayrılır, çünkü üç farklı erişim ister:
 
 ```powershell
-python -m pytest tests/test_normalize.py tests/test_runner.py -v
+python -m pytest tests/ -m "not slow" --ignore=tests/test_ingest.py --ignore=tests/test_e2e.py --ignore=tests/test_triage_db.py --ignore=tests/test_relationships_db.py --ignore=tests/test_report_db.py --ignore=tests/test_ai_skorla_db.py
 ```
 
-Normalizasyon testleri hiçbir şeye bağlı değildir. Runner testleri Docker
-soketine ihtiyaç duyar ve host'ta koşar (Docker Desktop ayakta olmalı).
+Host'takiler hiçbir şeye bağlı değildir (runner testleri Docker soketi ister).
 
 ```powershell
-docker compose run --rm --no-deps api python -m pytest tests/test_ingest.py -v
+docker compose exec -T api python -m pytest tests/test_ingest.py tests/test_triage_db.py tests/test_relationships_db.py tests/test_report_db.py tests/test_ai_skorla_db.py -q
 ```
 
-Ingest testleri veritabanına dokunur, dolayısıyla `osint-data` ağındaki bir
-container içinden koşar. Host'tan çalıştırılırsa sessizce atlanırlar.
+Veritabanına dokunanlar `osint-data` ağındaki bir container içinden koşar.
 
-Yerel geliştirme için bağımlılıkları host'a da kurmak gerekir:
+```powershell
+docker compose run --rm --no-deps worker python -m pytest tests/test_e2e.py -q
+```
+
+E2E testi hem veritabanı hem Docker soketi ister.
+
+`-m slow` işaretli testler canlı dış servislere çıkar (crt.sh, RIPEstat,
+rdap.org, DNS, Shodan). Servis düşükse **atlanırlar, asla `fail` etmezler** —
+bir testin crt.sh'ın o anki durumuna bağlı olması, "kod mu bozuk, sunucu mu
+düştü" sorusunu cevaplanamaz hâle getirir.
+
+Yerel geliştirme için bağımlılıklar host'a da kurulabilir:
 
 ```powershell
 python -m pip install -r requirements.txt
@@ -318,6 +445,5 @@ görüntüleri ve commit mesajları dahil.
 
 ## Lisans
 
-<!-- LISANS DOSYASI EKLENECEK -->
-
-Lisans metni için depo kökündeki `LICENSE` dosyasına bakınız.
+Depoda `LICENSE` dosyası yoktur; bu, varsayılan olarak **hiçbir kullanım hakkı
+verilmediği** anlamına gelir. Proje ekip içi kullanım için geliştirilmiştir.
