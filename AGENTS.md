@@ -58,31 +58,46 @@ Veri modelinin iki ek değişmezi:
 
 ## 3. Mimari — veri akışı
 
+Analist araştırmayı kurarken **kök hedefi** (domain ya da IP) ve **kullanılacak
+tool'ları** bir kez seçer. Sonrası tek düğme:
+
 ```
-Arayüz (POST /investigations/{id}/run)
+1. POST /investigations
+   ad + kok_hedef + secili_toollar[]
    |
-   +- upsert_entity(kök hedef, gozlem=False)   <- tool görmedi, sayaç artmaz
-   +- kuyruga_al(...)                          <- job satırı yazar
-   +- worker.kuyruga_gonder(job_id)            <- Celery'ye görev
+   +- _kok_hedef_coz()  -> once IP denenir, degilse DOMAIN; subdomain koke iner
+   +- investigation.kok_tip, investigation.secili_toollar
+        |
+2. POST /investigations/{id}/run   ("Taramayi baslat")
+   |
+   +- upsert_entity(kok hedef, gozlem=False)   <- tool gormedi, sayac artmaz
+   +- SECILI tool'lardan kok_tip'i KABUL EDENLERIN hepsi kuyruga alinir
+   +- worker.kuyruga_gonder(job_id) x N
         |
         v
-   Celery: osint.job_calistir
+3. Celery: osint.job_calistir
+   |
+   +- ToolRunner.calistir()   <- spec.calistirma'ya bakip dagitir
+   |      +- ContainerRunner  (docker: subfinder, theharvester)
+   |      +- ApiRunner        (api: crtsh, dns-resolver, whois-rdap,
+   |                           asn-bgp, shodan-lookup)
+   |      · timeout, retry/backoff, rate limit, kota, yetki kontrolu,
+   |        ham ciktinin diske yazimi — HEPSI RUNNER'IN ISI
+   |
+   +- adapter.parse(RawResult) -> list[Observation]   <- SAF fonksiyon
+   |
+   +- ingest(..., secili_toollar=inv.secili_toollar)
+   |      +- upsert_entity     (ON CONFLICT, dedup)
+   |      +- upsert_relationship
+   |      +- kuyruga_al        <- zincirleme, SECILI TOOL'LARLA SINIRLI
+   |           |
+   |           +- commit SONRASI kuyruga_gonder(jid)
+   |
+   +- _tur_bittiyse_skorla()   <- bekleyen is kalmadiysa:
         |
-        +- 1. ToolRunner.calistir()   <- spec.calistirma'ya bakıp dağıtır
-        |      +- ContainerRunner     (docker: subfinder, theharvester)
-        |      +- ApiRunner           (api: crtsh, dns-resolver, whois-rdap,
-        |                              asn-bgp, shodan-lookup)
-        |      · timeout, retry/backoff, rate limit, yetki kontrolü,
-        |        ham çıktının diske yazımı — HEPSİ RUNNER'IN İŞİ
-        |
-        +- 2. adapter.parse(RawResult) -> list[Observation]   <- SAF fonksiyon
-        |
-        +- 3. ingest(session, job, gozlemler, ...)
-               +- upsert_entity     (ON CONFLICT, dedup)
-               +- upsert_relationship
-               +- kuyruga_al        <- zincirleme: yetenek grafiğinden türer
-                    |
-                    +- commit SONRASI kuyruga_gonder(jid)   <- Bölüm 7'deki hata
+        v
+4. Celery: osint.ai_skorla   (OTOMATIK)
+   on eleme -> yigina bol -> Gemini -> dogrula -> assessment + hypothesis
 ```
 
 Zincir dört katmanlı:
@@ -92,6 +107,23 @@ Zincir dört katmanlı:
 manifest'lerdeki `kabul_eder` / `uretir` alanlarından `ToolRegistry.tuketenler()`
 ile türetilir. Sonsuz döngüye karşı iki koruma var: `uq_job_tekrar` UNIQUE kısıtı
 (aynı tool+hedef ikinci kez kuyruğa girmez) ve `MAX_DERINLIK=3`.
+
+**Tool seçimi zincirin TAMAMINI bağlar.** `investigation.secili_toollar` boş
+değilse `ingest()` yalnızca o tool'ları kuyruğa alır. Analist araştırmayı
+kurarken "shodan kullanma" dediyse üçüncü derinlikte de kullanılmamalıdır;
+kısıt tek yerde, zincirleme işleri doğuran noktada uygulanır.
+Boş liste = kısıt yok (eski araştırmalar aynen çalışır).
+
+**Kök hedefin tipini kabul etmeyen seçili tool'lar ilk turda atlanır.** Bu veri
+kaybı değildir: `shodan-lookup` IP bekler, domain'den başlayan bir turda
+zincir IP ürettiğinde kendiliğinden devreye girer. Arayüz bunu
+"bu turda başlar" / "zincirde" rozetleriyle gösterir.
+
+**AI skorlaması tur bitince otomatik tetiklenir** (`worker._tur_bittiyse_skorla`).
+Sayım commit sonrası yapılır ki işin kendi son durumu da görünsün. İki iş
+neredeyse aynı anda bitip ikisi de "sıfır kaldı" görebilir; kilit
+KOYULMADI çünkü `assessment.girdi_hash` sayesinde ikinci koşu aynı girdiyi
+önbellekte bulur ve modele hiç gitmez.
 
 ---
 

@@ -91,9 +91,22 @@ class Investigation(Base):
         _UUID, primary_key=True, server_default=_GEN_UUID
     )
     ad: Mapped[str] = mapped_column(Text, nullable=False)
-    # normalize edilmiş kök domain
+    # normalize edilmiş kök hedef: DOMAIN ya da IP olabilir
     kok_hedef: Mapped[str] = mapped_column(Text, nullable=False)
+    # kök hedefin varlık tipi ('domain' | 'ip'). Hangi tool'ların ilk turda
+    # koşacağını ve zincirin nereden başlayacağını belirler.
+    kok_tip: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'domain'")
+    )
     kapsam_notu: Mapped[str | None] = mapped_column(Text)
+
+    # Bu araştırmada kullanılacak tool'lar. BOŞ LİSTE = kısıt yok, etkin olan
+    # her tool kullanılır (mevcut araştırmalar böyle davranmaya devam eder).
+    # Zincirleme de bu listeyle sınırlanır: analist "shodan kullanma" dediyse
+    # üçüncü derinlikte de kullanılmamalıdır.
+    secili_toollar: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default=text("'{}'")
+    )
 
     # FALSE ise runner P2 ve A seviyesindeki HİÇBİR modülü çalıştırmaz.
     # Bu kontrol RUNNER'da yapılır, arayüzde değil — arayüz kontrolü atlanabilir.
@@ -114,6 +127,7 @@ class Investigation(Base):
         CheckConstraint(
             "durum IN ('active','archived')", name="ck_investigation_durum"
         ),
+        CheckConstraint("kok_tip IN ('domain','ip')", name="ck_investigation_kok_tip"),
         Index("ix_investigation_durum", "durum", text("olusturma DESC")),
     )
 

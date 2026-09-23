@@ -17,6 +17,7 @@ from pathlib import Path
 
 from celery import Celery
 from dotenv import load_dotenv
+from sqlalchemy import func, select
 
 from app.db import SessionLocal
 from app.ingest import ingest
@@ -223,7 +224,9 @@ def _job_calistir(job_id: uuid.UUID) -> dict:
         #    kalır, yani turun eksik olduğu görünür.
         ozet = None
         if sonuc.durum in (JobStatus.SUCCESS, JobStatus.TIMEOUT) and sonuc.ham:
-            ozet = _ayristir_ve_yaz(session, job, adapter, sonuc)
+            ozet = _ayristir_ve_yaz(
+                session, job, adapter, sonuc, list(inv.secili_toollar or ())
+            )
 
         return _bitir(
             session,
@@ -237,7 +240,8 @@ def _job_calistir(job_id: uuid.UUID) -> dict:
         )
 
 
-def _ayristir_ve_yaz(session, job: Job, adapter: ToolAdapter, sonuc: RunSonucu):
+def _ayristir_ve_yaz(session, job: Job, adapter: ToolAdapter, sonuc: RunSonucu,
+                     secili_toollar: list[str] | None = None):
     """parse() + ingest(). Ayrıştırma hatası turu düşürmez, job'u failed yapmaz.
 
     `parse()` sözleşme gereği istisna fırlatmaz; yine de bozuk bir adapter
@@ -256,6 +260,7 @@ def _ayristir_ve_yaz(session, job: Job, adapter: ToolAdapter, sonuc: RunSonucu):
         spec=adapter.spec,
         ham_cikti_ref=sonuc.ham_cikti_ref or "",
         registry=registry(),
+        secili_toollar=secili_toollar,
     )
     session.commit()
 
@@ -294,6 +299,8 @@ def _bitir(
     job.sure_ms = sure_ms
     job.deneme_sayisi = deneme
     session.commit()
+
+    skorlama = _tur_bittiyse_skorla(session, job.investigation_id)
     return {
         "job_id": str(job.id),
         "tool": job.tool,
@@ -302,4 +309,31 @@ def _bitir(
         "deneme": job.deneme_sayisi,
         "gozlem": ozet.observation_sayisi if ozet else 0,
         "kuyruga_alinan": ozet.kuyruga_alinan if ozet else 0,
+        "skorlama_tetiklendi": skorlama,
     }
+
+
+def _tur_bittiyse_skorla(session, inv_id) -> bool:
+    """Araştırmada bekleyen iş kalmadıysa AI skorlamasını tetikler.
+
+    Analist elle düğmeye basmak zorunda kalmasın diye: toplama biter bitmez
+    önceliklendirme de hazır olmalı. Sayım COMMIT SONRASI yapılır — bu işin
+    kendi son durumu da görünsün.
+
+    YARIŞ: iki iş neredeyse aynı anda bitip ikisi de "sıfır kaldı" görebilir,
+    yani skorlama iki kez kuyruğa girebilir. Kilit KOYULMADI çünkü bedeli yok:
+    `assessment.girdi_hash` sayesinde ikinci koşu aynı girdiyi önbellekte bulur
+    ve modele HİÇ gitmez. Kilit, kazandırdığından fazla karmaşıklık getirirdi.
+    """
+    kalan = session.execute(
+        select(func.count())
+        .select_from(Job)
+        .where(
+            Job.investigation_id == inv_id,
+            Job.durum.in_([JobStatus.QUEUED.value, JobStatus.RUNNING.value]),
+        )
+    ).scalar_one()
+    if kalan:
+        return False
+    log.info("araştırma %s: tur bitti, skorlama tetikleniyor", inv_id)
+    return skorlamayi_gonder(inv_id)

@@ -313,6 +313,7 @@ def ingest(
     ham_cikti_ref: str,
     registry: ToolRegistry | None = None,
     max_derinlik: int = MAX_DERINLIK,
+    secili_toollar: list[str] | None = None,
 ) -> IngestSonucu:
     """Gözlemleri veritabanına yazar ve zincirleme işleri kuyruğa alır.
 
@@ -325,9 +326,15 @@ def ingest(
     her `observation` satırına yazılır — İlke 2'nin (her bulgu ham çıktısına
     kadar izlenebilir) taşıyıcısı odur.
 
+    `secili_toollar` BOŞ ya da None ise kısıt yoktur. Doluysa zincirleme
+    yalnızca o tool'ları kuyruğa alır: analist araştırmayı kurarken "shodan
+    kullanma" dediyse üçüncü derinlikte de kullanılmamalıdır. Kısıt burada
+    uygulanır çünkü zincirleme işleri doğuran tek yer burasıdır.
+
     Commit ETMEZ. İşlem sınırını çağıran belirler; bir tool turunun tamamı tek
     işlemde ya yazılır ya yazılmaz.
     """
+    izinli = frozenset(secili_toollar or ())
     sonuc = IngestSonucu()
     zincirlenen: set[tuple[str, str]] = set()
 
@@ -393,6 +400,8 @@ def ingest(
         zincirlenen.add(anahtar)
 
         for adapter in registry.tuketenler(tip):
+            if izinli and adapter.spec.name not in izinli:
+                continue
             yeni = kuyruga_al(
                 session,
                 job.investigation_id,

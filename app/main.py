@@ -31,6 +31,27 @@ from app.raw_output import ONIZLEME_BAYT, arsiv_yolu, onizle
 from app.report import markdown_rapor
 
 Grup = Literal["tumu", "oncelikli", "incele", "baglam", "sertifika"]
+Onem = Literal["tumu", "kritik", "yuksek", "orta", "dusuk", "skorsuz"]
+
+# AI skorunun analiste gosterilen karsiligi. Esikler prompt'taki rubrikle
+# (app/ai/prompt.py SISTEM) AYNI olmak zorunda: modele "90+ essiz bir sebep
+# ister" deyip arayuzde 85'i kritik gostermek, skoru anlamsizlastirir.
+ONEM_DUZEYLERI = {
+    "kritik": ("Kritik", 90, 101),
+    "yuksek": ("Yüksek", 70, 90),
+    "orta": ("Orta", 50, 70),
+    "dusuk": ("Düşük", 0, 50),
+    "skorsuz": ("Skorlanmadı", None, None),
+}
+
+
+def _onem_kodu(skor: int | None) -> str:
+    if skor is None:
+        return "skorsuz"
+    for kod, (_, alt, ust) in ONEM_DUZEYLERI.items():
+        if alt is not None and alt <= skor < ust:
+            return kod
+    return "skorsuz"
 
 KOK = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(KOK / "templates"))
@@ -82,7 +103,11 @@ def kok(request: Request, session: Session = Depends(oturum)):
         .all()
     )
     return templates.TemplateResponse(
-        request, "index.html", {"arastirmalar": arastirmalar}
+        request, "index.html",
+        {
+            "arastirmalar": arastirmalar,
+            "tools": sorted(registry().hepsi(), key=lambda a: a.spec.name),
+        },
     )
 
 
@@ -94,19 +119,28 @@ def arastirma_olustur(
     kapsam_notu: str = Form(""),
     yetki_onayi: bool = Form(False),
     yetki_notu: str = Form(""),
+    toollar: list[str] = Form(default=[]),
     session: Session = Depends(oturum),
 ):
-    """Kök hedef normalize edilerek saklanır — dedup'ın başlangıç noktası."""
-    try:
-        norm = normalize(EntityType.DOMAIN, kok_hedef)
-        if not domain_mi(norm):
-            norm = kok_domain(norm)  # subdomain girilmişse köke indir
-    except NormalizeError as e:
-        raise HTTPException(400, f"geçersiz kök hedef: {e}") from e
+    """Araştırmayı kurar: kök hedef + bu araştırmada kullanılacak tool'lar.
+
+    Kök hedef DOMAIN ya da IP olabilir. Tip burada bir kez belirlenir ve
+    saklanır; taramanın hangi tool'larla başlayacağı ve zincirin nereden
+    açılacağı buna bağlıdır.
+    """
+    norm, kok_tip = _kok_hedef_coz(kok_hedef)
+
+    gecerli = {a.spec.name for a in registry().hepsi()}
+    secili = [t for t in dict.fromkeys(toollar) if t in gecerli]
+    bilinmeyen = set(toollar) - gecerli
+    if bilinmeyen:
+        raise HTTPException(400, f"bilinmeyen tool: {', '.join(sorted(bilinmeyen))}")
 
     inv = Investigation(
         ad=ad.strip() or norm,
         kok_hedef=norm,
+        kok_tip=kok_tip.value,
+        secili_toollar=secili,
         kapsam_notu=kapsam_notu.strip() or None,
         yetki_onayi=yetki_onayi,
         yetki_notu=yetki_notu.strip() or None,
@@ -115,6 +149,29 @@ def arastirma_olustur(
     session.add(inv)
     session.commit()
     return RedirectResponse(f"/investigations/{inv.id}", status_code=303)
+
+
+def _kok_hedef_coz(ham: str) -> tuple[str, EntityType]:
+    """Kullanıcının girdiği hedefi normalize eder ve tipini belirler.
+
+    ÖNCE IP DENENİR: `1.2.3.4` bir domain olarak da ayrıştırılmaya çalışılırsa
+    PSL'de karşılığı olmadığı için kafa karıştırıcı bir hata verir. IP değilse
+    domain kabul edilir; subdomain girilmişse köke indirilir.
+    """
+    ham = (ham or "").strip()
+    if not ham:
+        raise HTTPException(400, "kök hedef boş olamaz")
+    try:
+        return normalize(EntityType.IP, ham), EntityType.IP
+    except NormalizeError:
+        pass
+    try:
+        norm = normalize(EntityType.DOMAIN, ham)
+    except NormalizeError as e:
+        raise HTTPException(400, f"geçersiz kök hedef: {e}") from e
+    if not domain_mi(norm):
+        norm = kok_domain(norm)  # subdomain girilmişse köke indir
+    return norm, EntityType.DOMAIN
 
 
 # --------------------------------------------------------------------------- #
@@ -132,62 +189,89 @@ def _arastirma(session: Session, inv_id: uuid.UUID) -> Investigation:
 @app.get("/investigations/{inv_id}", response_class=HTMLResponse)
 def arastirma(
     inv_id: uuid.UUID, request: Request, session: Session = Depends(oturum),
-    grup: Grup = "tumu", sayfa: int = Query(1, ge=1),
+    grup: Grup = "tumu", onem: Onem = "tumu", sayfa: int = Query(1, ge=1),
 ):
     inv = _arastirma(session, inv_id)
+    kok_tip = EntityType(inv.kok_tip)
+    adapterlar = _secili_adapterlar(inv)
     return templates.TemplateResponse(
         request,
         "investigation.html",
         {
             "inv": inv,
-            "tools": sorted(registry().hepsi(), key=lambda a: a.spec.name),
+            "tools": adapterlar,
+            # Bu turda hangileri BAŞLAYACAK: kök hedefin tipini kabul edenler.
+            # Kalanlar zincirde sonraki derinlikte devreye girer.
+            "baslayanlar": [a.spec.name for a in adapterlar
+                            if kok_tip in a.spec.kabul_eder],
             "isler": _isler(session, inv_id),
             "grup": grup,
+            "onem": onem,
             "sayfa": sayfa,
         },
     )
 
 
 @app.post("/investigations/{inv_id}/run")
-def calistir(
-    inv_id: uuid.UUID,
-    tool: str = Form("subfinder"),
-    session: Session = Depends(oturum),
-):
-    """Tool'u kök hedef üzerinde kuyruğa alır.
+def calistir(inv_id: uuid.UUID, session: Session = Depends(oturum)):
+    """Araştırmanın SEÇİLİ TOOL'LARINI kök hedef üzerinde kuyruğa alır.
+
+    Tek tek tool seçtirmek yerine tarama tek hamlede başlar: analist tool
+    kararını araştırmayı kurarken verdi, her turda tekrar vermek zorunda
+    değil. Kök hedefin tipini kabul etmeyen tool'lar bu turda atlanır —
+    atlanmaları veri kaybı değildir, zincir onları sonraki derinlikte
+    kendiliğinden çağırır (`shodan-lookup` IP bekler, domain'den başlayan
+    bir turda ikinci derinlikte devreye girer).
 
     YETKİ KONTROLÜ BURADA DA VAR ama asıl kontrol runner'dadır. Arayüzdeki
     `disabled` özniteliği atlanabilir — form elle POST edilebilir. Bu yüzden
     sunucu tarafında da denetlenir; runner ise üçüncü ve son savunmadır.
     """
     inv = _arastirma(session, inv_id)
-    adapter = registry().get(tool)
-    if adapter is None:
-        raise HTTPException(400, f"bilinmeyen tool: {tool}")
-    if adapter.spec.yetki_ister() and not inv.yetki_onayi:
+    kok_tip = EntityType(inv.kok_tip)
+
+    adapterlar = _secili_adapterlar(inv)
+    if not adapterlar:
+        raise HTTPException(400, "bu araştırmada seçili tool yok")
+
+    baslayanlar = [a for a in adapterlar if kok_tip in a.spec.kabul_eder]
+    if not baslayanlar:
         raise HTTPException(
-            403,
-            f"{tool} seviyesi {adapter.spec.passivity.value}; yetki onayı gerekir",
+            400,
+            f"seçili tool'ların hiçbiri {kok_tip.value} kabul etmiyor; "
+            "araştırmayı uygun bir tool ile kurun",
         )
 
     # Kök hedef arayüzden girildi, bir tool GÖRMEDİ: gozlem_sayisi artmaz.
     entity = upsert_entity(
-        session, inv.id, EntityType.DOMAIN, inv.kok_hedef, inv.kok_hedef,
-        gozlem=False,
+        session, inv.id, kok_tip, inv.kok_hedef, inv.kok_hedef, gozlem=False,
     )
-    job = kuyruga_al(
-        session,
-        inv.id,
-        adapter.spec.name,
-        adapter.spec.version,
-        entity,
-        derinlik=0,
-    )
+    idler: list[uuid.UUID] = []
+    for adapter in baslayanlar:
+        if adapter.spec.yetki_ister() and not inv.yetki_onayi:
+            continue  # sessizce atlanmaz: arayüz bu tool'u zaten kapalı gösterir
+        job = kuyruga_al(
+            session, inv.id, adapter.spec.name, adapter.spec.version,
+            entity, derinlik=0,
+        )
+        if job is not None:
+            idler.append(job.id)
     session.commit()
 
-    if job is not None:
-        _kuyruga_gonder(job.id)
+    # GÖNDERİM COMMIT'TEN SONRA: önce gönderilirse görev, job satırı görünür
+    # olmadan alınabilir ve "job bulunamadı" ile düşer.
+    for jid in idler:
+        _kuyruga_gonder(jid)
     return RedirectResponse(f"/investigations/{inv_id}", status_code=303)
+
+
+def _secili_adapterlar(inv: Investigation) -> list:
+    """Araştırmanın tool'ları. Liste boşsa kısıt yoktur, hepsi kullanılır."""
+    secili = set(inv.secili_toollar or ())
+    return sorted(
+        (a for a in registry().hepsi() if not secili or a.spec.name in secili),
+        key=lambda a: a.spec.name,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -210,12 +294,33 @@ def _isler(session: Session, inv_id: uuid.UUID) -> list[Job]:
 @app.get("/investigations/{inv_id}/entities", response_class=HTMLResponse)
 def varliklar(
     inv_id: uuid.UUID, request: Request, session: Session = Depends(oturum),
-    grup: Grup = "tumu", sayfa: int = Query(1, ge=1),
+    grup: Grup = "tumu", onem: Onem = "tumu", sayfa: int = Query(1, ge=1),
 ):
-    """HTMX ile 2 saniyede bir yenilenen tablo — sonuçlar canlı dolar."""
-    inv = _arastirma(session, inv_id)
-    gorunum = sayfala(listele(session, inv_id, inv.kok_hedef), grup, sayfa)
+    """Varlık tablosu. Çalışan iş varken HTMX ile canlı yenilenir.
 
+    İKİ AYRI SÜZGEÇ, İKİSİ DE YALNIZCA GÖRÜNÜM: `grup` deterministik ön
+    elemenin sonucu, `onem` AI skorunun bandı. Hiçbiri veri silmez; sayımlar
+    her zaman TÜM varlıklar üzerinden hesaplanır ki analist neyi daralttığını
+    görsün (İlke 1).
+    """
+    inv = _arastirma(session, inv_id)
+    skorlar = son_skorlar(session, inv_id)
+    satirlar = listele(session, inv_id, inv.kok_hedef)
+
+    onem_sayim = {kod: 0 for kod in ONEM_DUZEYLERI}
+    for s in satirlar:
+        a = skorlar.get(s.entity.id)
+        onem_sayim[_onem_kodu(a.skor if a else None)] += 1
+
+    if onem != "tumu":
+        satirlar = [
+            s for s in satirlar
+            if _onem_kodu(
+                (skorlar.get(s.entity.id).skor if skorlar.get(s.entity.id) else None)
+            ) == onem
+        ]
+
+    gorunum = sayfala(satirlar, grup, sayfa)
     return templates.TemplateResponse(
         request,
         "_entities.html",
@@ -224,23 +329,13 @@ def varliklar(
             **gorunum,
             "gruplar": GRUPLAR,
             "isler": _isler(session, inv_id),
-            "skorlar": son_skorlar(session, inv_id),
+            "skorlar": skorlar,
+            "onem": onem,
+            "onem_duzeyleri": ONEM_DUZEYLERI,
+            "onem_sayim": onem_sayim,
+            "skorlandi": bool(skorlar),
         },
     )
-
-
-@app.post("/investigations/{inv_id}/skorla")
-def skorlat(inv_id: uuid.UUID, session: Session = Depends(oturum)):
-    """AI skorlamasını kuyruğa alır. Skorlar HTMX yenilemesiyle tabloda belirir.
-
-    Skorlama bir `job` satırı yazmaz: tool koşumu değil, mevcut veri üzerinde
-    görünüm hesabıdır (bkz. `worker.ai_skorla`).
-    """
-    _arastirma(session, inv_id)
-    from app.worker import skorlamayi_gonder
-
-    skorlamayi_gonder(inv_id)
-    return RedirectResponse(f"/investigations/{inv_id}", status_code=303)
 
 
 @app.get("/entities/{entity_id}", response_class=HTMLResponse)

@@ -104,7 +104,9 @@ def test_http_sayfalar_gruplar_polling_ve_escape(veri):
             assert f"/entities/{e['cert'].id}" in ikinci.text
             cert = client.get(url + "/entities?grup=sertifika")
             assert cert.text.count("kaynağı gör") == 1
-            assert "grup=sertifika&amp;sayfa=1" in cert.text
+            # Yenileme URL'si secilen gorunumu KORUR: grup ve sayfa kaybolursa
+            # tablo iki saniyede bir birinci sayfaya geri atar.
+            assert "grup=sertifika" in cert.text and "sayfa=1" in cert.text
             # Bir grup secilyken bile "tumu" sekmesi TOPLAM sayiyi gosterir:
             # analist hicbir seyin gizlenmedigini gorebilmelidir (Ilke 1).
             tumu_bag = cert.text.index("?grup=tumu")
@@ -114,7 +116,8 @@ def test_http_sayfalar_gruplar_polling_ve_escape(veri):
             assert "<script>alert" not in incele.text
             assert "&lt;script&gt;" in incele.text
             full = client.get(url + "?grup=incele&sayfa=2")
-            assert "grup=incele&amp;sayfa=2" in full.text
+            # Tam sayfa, secilen gorunumu HTMX parcasina devreder.
+            assert "grup=incele" in full.text and "sayfa=2" in full.text
             assert client.get(url + "/entities?sayfa=0").status_code == 422
             assert client.get(url + "/entities?grup=invalid").status_code == 422
             assert client.get(f"/investigations/{uuid.uuid4()}/entities").status_code == 404

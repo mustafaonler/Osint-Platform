@@ -9,8 +9,9 @@
 
 <h1>{{ inv.ad }}</h1>
 <p class="silik">
+  <span class="rozet rozet-notr">{{ inv.kok_tip }}</span>
   <span class="deger">{{ inv.kok_hedef }}</span>
-  · Oluşturan: {{ inv.olusturan }}
+  · {{ inv.olusturan }}
   · {{ inv.olusturma.strftime("%d.%m.%Y %H:%M") }}
   {% if inv.yetki_onayi %}
     · <span class="rozet rozet-ok">yetki onaylı</span>
@@ -21,69 +22,50 @@
 {% if inv.kapsam_notu %}<p class="silik">Kapsam: {{ inv.kapsam_notu }}</p>{% endif %}
 {% if inv.yetki_notu %}<p class="silik">Yetki: {{ inv.yetki_notu }}</p>{% endif %}
 
-<div class="izgara izgara-2" style="margin-top:20px; align-items:start;">
-
-  <div class="kart">
-    <div class="kart-bas">
-      <h2>Tool çalıştır</h2>
-      <span class="ust-ara"></span>
-      <span class="rozet rozet-notr">{{ tools|length }} tool</span>
-    </div>
-    <div class="kart-govde">
-      <form method="post" action="/investigations/{{ inv.id }}/run">
-        <div class="tool-izgara">
-          {% for t in tools %}
-          {% set kapali = t.spec.yetki_ister() and not inv.yetki_onayi %}
-          <label class="tool">
-            <input type="radio" name="tool" value="{{ t.spec.name }}"
-                   {% if loop.first and not t.spec.yetki_ister() %}checked{% endif %}
-                   {% if kapali %}disabled{% endif %}>
-            <span>
-              <span class="tool-ad">{{ t.spec.name }}</span>
-              <span class="rozet rozet-notr">{{ t.spec.passivity.value }}</span>
-              <span class="tool-akis">
-                {{ t.spec.kabul_eder|map(attribute="value")|join(", ") }}
-                &rarr; {{ t.spec.uretir|map(attribute="value")|join(", ") }}
-              </span>
-              {% if kapali %}<span class="tool-akis">yetki onayı gerekir</span>{% endif %}
-            </span>
-          </label>
-          {% endfor %}
-        </div>
-        <div class="dugme-sirasi" style="margin-top:14px;">
-          <button type="submit" class="birincil">Kuyruğa at</button>
-          <span class="kucuk">İlk tool bitince zincirleme kendiliğinden başlar
-            (derinlik sınırı 3).</span>
-        </div>
-      </form>
-    </div>
+<div class="kart" style="margin-top:20px">
+  <div class="kart-bas">
+    <h2>Tarama</h2>
+    <span class="rozet rozet-notr">{{ tools|length }} tool seçili</span>
+    <span class="ust-ara"></span>
+    <form method="post" action="/investigations/{{ inv.id }}/run">
+      <button type="submit" class="birincil">Taramayı başlat</button>
+    </form>
   </div>
-
-  <div class="kart">
-    <div class="kart-bas"><h2>AI skorlama</h2></div>
-    <div class="kart-govde">
-      <p class="silik" style="margin-top:0">
-        Toplanan varlıkları önceliklendirir: her satıra 0-100 arası bir skor ve
-        gerekçe ekler. <strong>Hiçbir varlık silinmez, gizlenmez, sıralama
-        değişmez</strong> — yalnızca bir sütun eklenir.
-      </p>
-      <p class="kucuk">
-        Sertifikalar modele gönderilmez (hacmin üçte biri, en az aksiyon veren tip).
-        Aynı veri ikinci kez skorlanmaz. Varlıklar 120'lik yığınlar hâlinde gider;
-        birkaç dakika sürebilir.
-      </p>
-      <div class="kutu kutu-uyari" style="margin-top:12px">
-        AI skorları önceliklendirme amaçlıdır. Doğrulama sorumluluğu analiste aittir.
+  <div class="kart-govde">
+    <p class="silik" style="margin-top:0">
+      Seçili tool'lar <span class="deger">{{ inv.kok_hedef }}</span> üzerinde
+      çalışır. Bitince zincirleme kendiliğinden devam eder
+      (derinlik sınırı 3), tur bittiğinde <strong>AI skorlaması otomatik
+      başlar</strong>.
+    </p>
+    <div class="tool-izgara">
+      {% for t in tools %}
+      {% set simdi = t.spec.name in baslayanlar %}
+      {% set kapali = t.spec.yetki_ister() and not inv.yetki_onayi %}
+      <div class="tool" style="cursor:default">
+        <span>
+          <span class="tool-ad">{{ t.spec.name }}</span>
+          <span class="rozet rozet-notr">{{ t.spec.passivity.value }}</span>
+          {% if kapali %}<span class="rozet rozet-uyari">yetki gerekir</span>
+          {% elif simdi %}<span class="rozet rozet-ok">bu turda başlar</span>
+          {% else %}<span class="rozet rozet-bilgi">zincirde</span>{% endif %}
+          <span class="tool-akis">
+            {{ t.spec.kabul_eder|map(attribute="value")|join(", ") }}
+            &rarr; {{ t.spec.uretir|map(attribute="value")|join(", ") }}
+          </span>
+        </span>
       </div>
-      <form method="post" action="/investigations/{{ inv.id }}/skorla">
-        <button type="submit">Skorlamayı kuyruğa at</button>
-      </form>
+      {% endfor %}
     </div>
+    <p class="kucuk" style="margin-top:12px">
+      &ldquo;zincirde&rdquo; işaretli tool'lar {{ inv.kok_tip }} kabul etmez;
+      turun ilerleyen derinliklerinde uygun varlık oluştuğunda kendiliğinden
+      devreye girerler. Atlanmaları veri kaybı değildir.
+    </p>
   </div>
-
 </div>
 
-<div hx-get="/investigations/{{ inv.id }}/entities?grup={{ grup }}&amp;sayfa={{ sayfa }}"
+<div hx-get="/investigations/{{ inv.id }}/entities?grup={{ grup }}&amp;onem={{ onem }}&amp;sayfa={{ sayfa }}"
      hx-trigger="load" hx-swap="outerHTML">
   <div class="kart"><p class="bos">yükleniyor…</p></div>
 </div>

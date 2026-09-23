@@ -7,7 +7,7 @@
    Is kalmadiginda sayfa durur; yeni is kuyruga atildiginda POST zaten
    sayfayi yeniden yukler. #}
 {% set calisiyor = isler | selectattr("durum", "in", ["queued", "running"]) | list | length %}
-<div id="sonuclar" hx-get="/investigations/{{ inv_id }}/entities?grup={{ grup }}&amp;sayfa={{ sayfa }}"
+<div id="sonuclar" hx-get="/investigations/{{ inv_id }}/entities?grup={{ grup }}&amp;onem={{ onem }}&amp;sayfa={{ sayfa }}"
      {% if calisiyor %}hx-trigger="every 2s"{% endif %}
      hx-swap="outerHTML" hx-sync="this:replace">
 
@@ -19,12 +19,27 @@
     <span class="kucuk">Ön eleme yalnızca sıralar ve gruplar; hiçbir varlık silinmez.</span>
   </div>
 
+  {# AI ONEM SERIDI. Ayri bir suzgec: `grup` deterministik on elemenin sonucu,
+     bu ise modelin skoru. Ikisi bagimsiz ve ikisi de yalnizca gorunumdur. #}
+  {% if skorlandi %}
+  <nav class="sekmeler" aria-label="AI önem düzeyi" style="background:var(--yuzey-2)">
+    <a class="sekme" href="/investigations/{{ inv_id }}?grup={{ grup }}&amp;onem=tumu"
+       {% if onem == 'tumu' %}aria-current="page"{% endif %}>AI: tümü
+      <span class="sayi">{{ toplam }}</span></a>
+    {% for kod, (ad, alt, ust) in onem_duzeyleri.items() %}
+    <a class="sekme" href="/investigations/{{ inv_id }}?grup={{ grup }}&amp;onem={{ kod }}"
+       {% if onem == kod %}aria-current="page"{% endif %}>{{ ad }}
+      <span class="sayi">{{ onem_sayim[kod] }}</span></a>
+    {% endfor %}
+  </nav>
+  {% endif %}
+
   <nav class="sekmeler" aria-label="Varlık grupları">
-    <a class="sekme" href="/investigations/{{ inv_id }}?grup=tumu"
+    <a class="sekme" href="/investigations/{{ inv_id }}?grup=tumu&amp;onem={{ onem }}"
        {% if grup == 'tumu' %}aria-current="page"{% endif %}>Tümü
       <span class="sayi">{{ toplam }}</span></a>
     {% for kod, ad in gruplar.items() %}
-    <a class="sekme" href="/investigations/{{ inv_id }}?grup={{ kod }}"
+    <a class="sekme" href="/investigations/{{ inv_id }}?grup={{ kod }}&amp;onem={{ onem }}"
        {% if grup == kod %}aria-current="page"{% endif %}>{{ ad }}
       <span class="sayi">{{ sayim[kod] }}</span></a>
     {% endfor %}
@@ -94,15 +109,17 @@
       Sayfa {{ sayfa }} / {{ sayfa_sayisi }}</span>
     <span class="dugme-sirasi">
       {% if sayfa > 1 %}
-      <a class="dugme" href="/investigations/{{ inv_id }}?grup={{ grup }}&amp;sayfa={{ sayfa - 1 }}">← Önceki</a>
+      <a class="dugme" href="/investigations/{{ inv_id }}?grup={{ grup }}&amp;onem={{ onem }}&amp;sayfa={{ sayfa - 1 }}">← Önceki</a>
       {% endif %}
       {% if sayfa < sayfa_sayisi %}
-      <a class="dugme" href="/investigations/{{ inv_id }}?grup={{ grup }}&amp;sayfa={{ sayfa + 1 }}">Sonraki →</a>
+      <a class="dugme" href="/investigations/{{ inv_id }}?grup={{ grup }}&amp;onem={{ onem }}&amp;sayfa={{ sayfa + 1 }}">Sonraki →</a>
       {% endif %}
     </span>
   </div>
   {% else %}
-  <p class="bos">Bu görünümde varlık yok. Yukarıdan bir tool çalıştırın.</p>
+  <p class="bos">Bu görünümde varlık yok.
+    {% if onem != 'tumu' %}AI önem süzgecini &ldquo;tümü&rdquo; yapmayı deneyin.
+    {% else %}Yukarıdan taramayı başlatın.{% endif %}</p>
   {% endif %}
 </div>
 
@@ -117,7 +134,8 @@
     {% for d, n in sayim_durum.items() %}
       <span class="durum {{ d }}">{{ d }} {{ n }}</span>
     {% endfor %}
-    {% if calisiyor %}<span class="kucuk">canlı yenileniyor…</span>
+    {% if calisiyor %}<span class="kucuk">canlı yenileniyor… tur bitince AI skorlaması otomatik başlar</span>
+    {% elif isler and not skorlandi %}<span class="kucuk">tur durdu · AI skorlaması bekleniyor</span>
     {% elif isler %}<span class="kucuk">tur durdu</span>{% endif %}
   </div>
 

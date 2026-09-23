@@ -50,9 +50,33 @@
         </div>
         <div class="alan">
           <label for="kok_hedef">Kök hedef</label>
-          <input id="kok_hedef" type="text" name="kok_hedef" placeholder="firma.com" required>
-          <p class="ipucu">Subdomain girerseniz kök domaine indirilir. Yalnızca
-            araştırma yetkiniz olan bir hedef girin.</p>
+          <input id="kok_hedef" type="text" name="kok_hedef"
+                 placeholder="firma.com  ·  192.0.2.10  ·  2001:db8::1" required>
+          <p class="ipucu">Domain ya da IP adresi. Subdomain girerseniz kök
+            domaine indirilir. Yalnızca araştırma yetkiniz olan bir hedef girin.</p>
+        </div>
+        <div class="alan">
+          <label>Bu araştırmada kullanılacak tool'lar</label>
+          <p class="ipucu">Seçim tüm tarama boyunca geçerlidir: zincirleme de
+            yalnızca bu tool'ları çağırır. Hiçbiri seçilmezse etkin olan
+            her tool kullanılır.</p>
+          <div class="tool-izgara" style="margin-top:8px">
+            {% for t in tools %}
+            <label class="tool">
+              <input type="checkbox" name="toollar" value="{{ t.spec.name }}" checked>
+              <span>
+                <span class="tool-ad">{{ t.spec.name }}</span>
+                <span class="rozet rozet-notr">{{ t.spec.passivity.value }}</span>
+                <span class="tool-akis">
+                  {{ t.spec.kabul_eder|map(attribute="value")|join(", ") }}
+                  &rarr; {{ t.spec.uretir|map(attribute="value")|join(", ") }}
+                </span>
+                {% if t.spec.auth_gerekli %}
+                <span class="tool-akis">API anahtarı gerekir</span>{% endif %}
+              </span>
+            </label>
+            {% endfor %}
+          </div>
         </div>
         <div class="alan">
           <label for="olusturan">Oluşturan</label>

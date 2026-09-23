@@ -353,16 +353,27 @@ http://127.0.0.1:8000
 
 **5. Kullanım**
 
-1. Ana sayfada araştırma oluşturun: bir ad ve kök domain. Yalnızca araştırma
-   yetkiniz olan bir hedef girin.
-2. Araştırma sayfasında bir tool seçip **Kuyruğa at**. `subfinder` veya `crtsh`
-   iyi bir başlangıçtır.
-3. Varlık tablosu iki saniyede bir kendini yeniler. İlk tool bittiğinde
-   zincirleme kendiliğinden başlar: bulunan her subdomain DNS'e, her IP ASN'e
-   ve WHOIS'e gider. Derinlik 3'te durur.
-4. Her satırdaki **kaynağı gör** bağlantısı gözlem zincirini ve ham çıktıyı açar.
-5. Tur durulduğunda **Skorlamayı kuyruğa at** ile AI skorlaması çalışır
-   (anahtar tanımlıysa). Varlıklar 120'lik yığınlar hâlinde gider.
+1. **Araştırma oluşturun.** Ad, kök hedef (domain ya da IP) ve
+   **bu araştırmada kullanılacak tool'ları** seçin. Tool seçimi tüm tarama
+   boyunca geçerlidir: zincirleme de yalnızca bu tool'ları çağırır. Hiçbiri
+   seçilmezse etkin olan her tool kullanılır.
+2. **Taramayı başlatın.** Tek düğme. Seçili tool'lardan kök hedefin tipini
+   kabul edenler aynı anda kuyruğa girer. Kabul etmeyenler "zincirde" olarak
+   işaretlenir ve uygun varlık oluştuğunda kendiliğinden devreye girerler —
+   `shodan-lookup` IP bekler, domain'den başlayan bir turda ikinci derinlikte
+   çalışır.
+3. **İzleyin.** Varlık tablosu, çalışan iş olduğu sürece iki saniyede bir
+   kendini yeniler; tur bitince yenileme durur. Zincir derinlik 3'te durur.
+4. **AI skorlaması kendiliğinden başlar.** Bekleyen iş kalmadığında
+   önceliklendirme otomatik tetiklenir; elle düğmeye basmak gerekmez.
+   Sonuçlar iki ayrı sekme şeridiyle süzülebilir:
+   - **AI önem düzeyi:** Kritik (90+) · Yüksek (70-89) · Orta (50-69) ·
+     Düşük (<50) · Skorlanmadı
+   - **Ön eleme grubu:** Öncelikli · İncelenecek · Bağlam/sağlayıcı · Sertifikalar
+
+   İkisi de yalnızca görünümdür. Hiçbir varlık silinmez, sayımlar her zaman
+   tüm varlıklar üzerinden gösterilir.
+5. Her satırdaki **kaynağı gör** bağlantısı gözlem zincirini ve ham çıktıyı açar.
 6. **Markdown raporunu indir** ile tüm varlıklar, ilişkiler, işler ve skorlar
    tek dosyada alınır.
 
