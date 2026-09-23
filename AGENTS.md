@@ -419,23 +419,50 @@ En üst skorlar analistin gerçekten önce bakacağı şeyler çıktı:
 `svn.iana.org`, `staging.iana.org`, `jenkins.blackhole-1.iana.org`,
 `k8s.blackhole-1.iana.org`. Yani skorlama yalnızca çalışmıyor, **işe yarıyor**.
 
-**Skor şişmesi — düzeltilmesi gereken açık.** Dağılım üst yarıya sıkışmış:
+**Skor şişmesi — ölçüldü, kalibre edildi (prompt v1.0 -> v2.0).**
 
-| Aralık | Varlık | % |
-|---|---|---|
-| 90-100 | 106 | 27,7 |
-| 80-89 | 32 | 8,4 |
-| 70-79 | 41 | 10,7 |
-| 50-69 | 167 | 43,6 |
-| 30-49 | 37 | 9,7 |
-| 0-29 | 0 | 0 |
+v1.0 canlı turunda 383 varlığın **%27,7'si 90-100** bandına düştü ve 0-29
+bandı hiç kullanılmadı. Kök neden tahmin edilmedi, sorgulandı: **77 netblock
+BİREBİR aynı gerekçeyi aldı** (ort. 65), **24 IP aynı cümleyle 95 aldı**.
+Model ayırt edemediğinde kurumu örüntülüyor ve cömert davranıyordu.
 
-383 varlığın 106'sı "90+" ise bu bir önceliklendirme değildir. Alt bant hiç
-kullanılmamış (sertifikalar gönderilmediği için 0-19 bandı boş kaldı).
-Prompt'taki rubrik (`SISTEM`) yeniden kalibre edilmeli: bantlara varlık
-yüzdesi hedefi eklemek veya modelden yığın içinde **sıralama** istemek
-(mutlak skor yerine göreli) muhtemel çözümler. Bu prompt değişikliği
-`PROMPT_VERSIYON`'u yükseltir ve tüm varlıklar yeniden skorlanır.
+v2.0 üç şey ekledi:
+
+1. **Bant bütçesi** — yığın boyutundan ADET olarak hesaplanır ve mesaja
+   yazılır ("en fazla 3 varlık 90+ alabilir"). Model yüzdeyle değil adetle
+   çalışır. `BUTCE_90 = 0.03`, `BUTCE_80 = 0.08`.
+2. **"Ayırt etmeyen gerekçe yüksek skor alamaz"** — bir gerekçeyi listedeki
+   başka varlıklara da aynen yazabiliyorsan o varlık 50 üstüne çıkamaz.
+   *Kurumun önemli olması, o varlığın önemli olduğu anlamına gelmez.*
+3. **Tip tavanları** — netblock/asn/org bağlamdır, ayırt edici sebep
+   olmadıkça 50 üstüne çıkmaz.
+
+| Aralık | v1.0 | v2.0 |
+|---|---:|---:|
+| 90-100 | 106 (%27,7) | **13 (%3,4)** |
+| 80-89 | 32 | 19 |
+| 70-79 | 41 | 100 |
+| 50-69 | 167 | 141 |
+| 30-49 | 37 | 108 |
+| 0-29 | 0 | 2 |
+
+Bütçeye uyuldu: hedef %3 / %8, gerçekleşen %3,4 / %8,4. Tip ortalamaları
+netblock 60->33, ip 73->55, subdomain 78->71.
+
+**Kuralın tuttuğunun kanıtı:** 77 netblock v2.0'da da aynı gerekçeyi aldı
+ama **ortalama 65'ten 30'a düştü** ve gerekçe "tek başına kritik bir hizmet
+değil" oldu. Model kuralı içselleştirdi.
+
+Üst sıra da iyileşti — v2.0 `ianarzm-admin.vip.icann.org`,
+`ianatools-admin.int.vip.icann.org`, `intranet.int.iana.org`,
+`sql.blackhole-2.iana.org` gibi v1.0'ın kaçırdığı yönetim arayüzlerini
+öne çıkardı. 13 iç ağ adresi (10.x) 80 aldı: kamuya açık DNS'te görünen
+iç adres gerçek bir bulgudur.
+
+**Eski skorlar durdu:** `assessment` yalnızca eklenir — v1.0'ın 383 satırı
+ile v2.0'ın 383 satırı yan yana duruyor, "eski prompt neden böyle demişti"
+sorusu cevaplanabilir. `girdi_hash` + `prompt_versiyon` yeniden skorlamayı
+kendiliğinden tetikledi.
 
 **YAPILMADI:** Rapor taslağı üretimi (kapsam.md 3.5 madde 3) — rapor şu an
 şablondan üretiliyor, modele yazdırılmıyor.
@@ -444,8 +471,6 @@ yüzdesi hedefi eklemek veya modelden yığın içinde **sıralama** istemek
 
 ### Bilinen açıklar
 
-- **AI skor şişmesi:** varlıkların %27,7'si 90-100 bandında, alt bant boş.
-  Prompt rubriği kalibre edilmeli (yukarıda Hafta 6).
 - 27 whois-rdap taşıma hatası araştırılmadı (3 denemeden sonra `failed`)
 - Bulut/CDN filtresi gerçek veriyle **kalibre edilmedi**. iana.org turunda
   yalnızca 3 ASN işaretlendi; Cloudflare/AWS arkasındaki bir hedefle

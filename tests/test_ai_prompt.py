@@ -287,3 +287,48 @@ def test_sema_structured_output_icin_gecerli():
     skor = P.SEMA["properties"]["skorlar"]["items"]
     assert set(skor["required"]) == {"id", "skor", "gerekce"}
     assert skor["properties"]["skor"]["type"] == "integer"
+
+
+# --------------------------------------------------------------------------- #
+# BANT BÜTÇESİ (v2.0) — skor şişmesi kalibrasyonu
+# --------------------------------------------------------------------------- #
+
+
+def test_butce_yigin_boyutundan_adet_olarak_hesaplanir():
+    """Model yüzdeyle değil ADETLE çalışır; bütçe mesajda sayı olmalı."""
+    mesaj, _ = P.kullanici_mesaji(
+        [_v(f"h{i}.ornek.com") for i in range(100)], kok_hedef="ornek.com"
+    )
+    assert "en fazla 3 varlık 90+" in mesaj
+    assert "en fazla 8 varlık 80+" in mesaj
+    assert "92 varlık 80'in ALTINDA" in mesaj
+
+
+def test_kucuk_yiginda_butce_sifira_inmez():
+    """Tersine hata: bütçe 0 olursa hiçbir şey öne çıkamaz."""
+    mesaj, _ = P.kullanici_mesaji([_v("a.ornek.com")], kok_hedef="ornek.com")
+    assert "en fazla 1 varlık 90+" in mesaj
+    assert "en fazla 1 varlık 80+" in mesaj
+
+
+def test_80_butcesi_90_butcesinin_altina_dusmez():
+    for n in (1, 5, 20, 120, 500):
+        mesaj, _ = P.kullanici_mesaji(
+            [_v(f"h{i}.ornek.com") for i in range(n)], kok_hedef="ornek.com"
+        )
+        import re
+        b90 = int(re.search(r"en fazla (\d+) varlık 90\+", mesaj).group(1))
+        b80 = int(re.search(r"en fazla (\d+) varlık 80\+", mesaj).group(1))
+        assert b90 <= b80 <= n, f"n={n}: bütçe tutarsız"
+
+
+def test_sistem_promptu_sismeye_karsi_kurallari_tasir():
+    s = P.SISTEM
+    assert "AYIRT ETMEYEN GEREKÇE" in s
+    assert "TAVAN" in s
+    assert "netblock" in s and "50" in s
+
+
+def test_prompt_versiyonu_yukseldi():
+    """Rubrik değişti: eski skorlar yeniden üretilmeli (girdi_hash bunu yönetir)."""
+    assert P.PROMPT_VERSIYON == "2.0"
