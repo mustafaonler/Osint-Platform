@@ -24,7 +24,8 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,7 @@ import requests
 from docker.errors import APIError, DockerException, ImageNotFound, NotFound
 
 from app.models import JobStatus
+from app.limits import LimitEngeli, RedisLimitleri
 from app.tools._base import RawResult, ToolConfig, ToolSpec
 
 __all__ = [
@@ -269,7 +271,23 @@ class HizSinirlayici:
 
     def __init__(self) -> None:
         self._son: dict[str, float] = {}
+        self._aylik: dict[tuple[str, str], int] = {}
         self._kilit = threading.Lock()
+
+    def izin_al(self, spec: ToolSpec, son_tarih: float) -> None:
+        """Yerel test/tek süreç yolu. Üretim worker'ı RedisLimitleri kullanır."""
+        bekleme = self.bekleme_suresi(spec.name, spec.dakikalik_istek)
+        if time.monotonic() + bekleme >= son_tarih:
+            raise LimitEngeli("Hız sınırı beklemesi çalışma bütçesini aşıyor", "timeout")
+        if bekleme > 0:
+            time.sleep(bekleme)
+        if spec.aylik_kota is not None:
+            ay = datetime.now(timezone.utc).strftime("%Y-%m")
+            key = (spec.name, ay)
+            with self._kilit:
+                if self._aylik.get(key, 0) >= spec.aylik_kota:
+                    raise LimitEngeli(f"{spec.name}: aylık kota doldu", "skipped")
+                self._aylik[key] = self._aylik.get(key, 0) + 1
 
     def bekleme_suresi(self, tool: str, dakikalik_istek: int | None) -> float:
         """Kaç saniye beklenmeli? Yeri de rezerve eder (uyku çağırana ait).
@@ -291,6 +309,7 @@ class HizSinirlayici:
     def sifirla(self) -> None:
         with self._kilit:
             self._son.clear()
+            self._aylik.clear()
 
 
 @dataclass(frozen=True)
@@ -315,7 +334,7 @@ class ContainerRunner:
         self,
         cfg: RunnerConfig | None = None,
         client: Any = None,
-        hiz: HizSinirlayici | None = None,
+        hiz: HizSinirlayici | RedisLimitleri | None = None,
     ) -> None:
         self.cfg = cfg or RunnerConfig()
         self._client = client
@@ -443,10 +462,10 @@ class ContainerRunner:
         # RATE LIMIT container yolunda DA uygulanır: subfinder de üçüncü taraf
         # kaynakları sorgular, nazik davranma borcu çalıştırma biçimine göre
         # değişmez.
-        bekleme = self._hiz.bekleme_suresi(spec.name, spec.dakikalik_istek)
-        if bekleme > 0:
-            log.info("%s: hız sınırı, %.1f sn bekleniyor", spec.name, bekleme)
-            time.sleep(bekleme)
+        try:
+            self._hiz.izin_al(spec, time.monotonic() + spec.toplam_butce_sn())
+        except LimitEngeli as e:
+            return RunSonucu(durum=JobStatus(e.durum), hata_mesaji=str(e), deneme=0)
 
         # RETRY BURADA YOK — BİLİNÇLİ KARAR
         # ------------------------------------------------------------------
@@ -466,8 +485,7 @@ class ContainerRunner:
         # tarafında tekrar denemeye değecek tek şey daemon'ın anlık meşguliyeti
         # olurdu; ölçülmüş bir sorun değil, spekülatif karmaşıklık eklemiyoruz.
         #
-        # `spec.aylik_kota` hâlâ uygulanmıyor: paylaşılan sayaç ister, Redis
-        # tabanlı token bucket ile birlikte yazılacak.
+        # Kota, container başlatma denemesi öncesinde tüketildi.
 
         return self._container_calistir(spec, hedef, job_id, komut, cikti_formati)
 
@@ -638,7 +656,7 @@ class ApiRunner:
     """
 
     def __init__(
-        self, cfg: RunnerConfig | None = None, hiz: HizSinirlayici | None = None
+        self, cfg: RunnerConfig | None = None, hiz: HizSinirlayici | RedisLimitleri | None = None
     ) -> None:
         self.cfg = cfg or RunnerConfig()
         # Süreç ömrü boyunca paylaşılır; sınırları HizSinirlayici docstring'inde.
@@ -683,10 +701,14 @@ class ApiRunner:
         for deneme in range(1, max(1, spec.max_deneme) + 1):
             # RATE LIMIT — her denemeden önce. Retry'ın kendisi de bir istektir;
             # 429 yiyip hemen tekrar vurmak sorunu büyütür.
-            bekleme = self._hiz.bekleme_suresi(spec.name, spec.dakikalik_istek)
-            if bekleme > 0:
-                log.info("%s: hız sınırı, %.1f sn bekleniyor", spec.name, bekleme)
-                time.sleep(bekleme)
+            try:
+                self._hiz.izin_al(spec, basla + butce)
+            except LimitEngeli as e:
+                # Önceki denemenin ham kanıtı kaybolmaz; başlatılmayan
+                # deneme sayaca eklenmez.
+                return replace(sonuc, durum=JobStatus(e.durum), hata_mesaji=str(e)) if sonuc else RunSonucu(
+                    durum=JobStatus(e.durum), hata_mesaji=str(e), deneme=0,
+                )
 
             sonuc = self._tek_deneme(adapter, hedef, job_id, cikti_formati, deneme)
 
@@ -846,7 +868,7 @@ class ToolRunner:
         self,
         cfg: RunnerConfig | None = None,
         client: Any = None,
-        hiz: HizSinirlayici | None = None,
+        hiz: HizSinirlayici | RedisLimitleri | None = None,
     ) -> None:
         self.cfg = cfg or RunnerConfig()
         # TEK sınırlayıcı: aynı tool iki yoldan da koşsa hız sınırı ortak kalır.

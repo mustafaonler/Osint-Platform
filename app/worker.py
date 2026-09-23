@@ -22,6 +22,7 @@ from app.db import SessionLocal
 from app.ingest import ingest
 from app.models import Investigation, Job, JobStatus
 from app.runner import RunSonucu, ToolRunner
+from app.limits import RedisLimitleri
 from app.tools._base import RawResult, ToolAdapter, ToolRegistry
 
 load_dotenv()
@@ -62,7 +63,7 @@ def runner() -> ToolRunner:
     """
     global _runner
     if _runner is None:
-        _runner = ToolRunner()
+        _runner = ToolRunner(hiz=RedisLimitleri.from_url(REDIS_URL))
     return _runner
 
 

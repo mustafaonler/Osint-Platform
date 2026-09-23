@@ -255,6 +255,11 @@ ip 81 (%14) · asn 8 · org 8 · domain 1
 **Bu ölçüm bulut filtresini SINAMADI** — Cloudflare/AWS arkasındaki bir hedefte
 tekrarlanmalı.
 
+**ADIM 2 düzeltmesi:** Ön eleme için `observation.veri` de okununca 3 ASN'de
+işaret bulundu: prefiks sınırı 3, hedefe ait olmama 2, sağlayıcı olma 1.
+Yukarıdaki sıfır sayımı tüm gözlem işaretlerini temsil etmiyor.
+580 varlığın grup dağılımı ve doğrulama: [docs/on-eleme.md](docs/on-eleme.md).
+
 **Tool başına üretim:**
 
 | Tool | Gözlem | Tekil varlık | Oran |
@@ -304,7 +309,14 @@ satırı görünür olmadan alınabilir), `main.py` aynı yardımcıyı kullanı
 
 ## 8. Sırada ne var
 
-### Hafta 4 ADIM 2 — ön eleme kuralları (SIRADAKİ İŞ)
+### Hafta 4 ADIM 2 — ön eleme kuralları (TAMAMLANDI)
+
+Uygulama: `app/triage.py` (saf kurallar), `app/triage_query.py` (araştırmaya
+sınırlı toplu okuma), gerekçeli grup görünümü ve 100 satırlık sayfalama.
+Farklı tool sayısı kullanılır; ham gözlem tekrarları sıralamayı şişirmez.
+Tüm varlıklar varsayılan görünümde korunur. Eşikler, dayanakları ve sınırlamalar:
+[docs/on-eleme.md](docs/on-eleme.md). Testler: `tests/test_triage.py` ve gerçek
+PostgreSQL/HTTP için `tests/test_triage_db.py` (api container'ında çalıştırılır).
 
 Bölüm 6'daki ölçüm bu tasarımın girdisidir. **Tahminle başlama, ölçüme bak.**
 
@@ -322,18 +334,33 @@ Kısıt: **hiçbir varlık silinmez.** Ön eleme = sıralama + gruplama. Analist
 istediğinde tam listeye erişebilmelidir. Ön eleme **deterministik** olacak; LLM
 ikinci katmandır, birinci değil.
 
-### Hafta 4 ADIM 3 — varlık ilişkileri arayüzü
+### Hafta 4 ADIM 3 — varlık ilişkileri arayüzü (TAMAMLANDI)
 
-Şu an arayüz düz liste. İlişki tipleri mevcut ve dolu (Bölüm 6). Graph
-görselleştirme **v1'de YOK** (bkz. Bölüm 9) — kastedilen, bir varlığın detay
-sayfasında komşularının listelenmesi.
+Varlık detayında gelen/giden ilişkiler kaynak → hedef yönüyle gösterilir.
+Komşu varlıkların detaylarına bağlantı, ilişki türünün Türkçe açıklaması ve ham
+kodu, ilk/son görülme zamanı, 50 ilişkilik DB sayfalaması vardır. İlişkinin ve
+iki ucunun aynı araştırmaya ait olduğu doğrulanır. Aynı komşuyla farklı
+ilişkiler ayrı tutulur; bilinmeyen türler ham koduyla görünür.
+Uygulama: `app/relationships.py`, `app/templates/entity.html`.
+PostgreSQL/HTTP testleri: `tests/test_relationships_db.py`.
+Graph görselleştirme **v1'de YOK** (bkz. Bölüm 9).
 
 ### Hafta 5 — rapor ve ham çıktı görüntüleme
 
-- Ham çıktıyı arayüzden görüntüleme (İlke 2'nin eksik yarısı — referans var,
-  görüntüleyici yok)
-- Rapor dışa aktarımı
-- `aylik_kota` uygulaması (alan tanımlı, kod yok)
+- **Tamamlandı:** Gözlem kimliği üzerinden ham çıktı önizlemesi (ilk 256 KiB)
+  ve özgün dosyanın tamamını indirme. Kanıt zincirindeki bağlantıdan açılır.
+  Yalnız ilgili işin arşiv yolu kabul edilir; yol/symlink kaçışı reddedilir.
+  Tool içeriği HTML olarak çalıştırılmaz. `app/raw_output.py`.
+- **Tamamlandı:** Araştırma sayfasından Markdown raporu indirme. Tüm varlıklar,
+  ilişkiler, işler, gözlem referansları, varsa son AI değerlendirmeleri ve
+  analist durumuna göre ayrılmış hipotezler. UI sayfalaması raporu sınırlamaz.
+  `app/report.py`. Ayrıntılar: [docs/rapor-ve-ham-cikti.md](docs/rapor-ve-ham-cikti.md).
+- **Tamamlandı:** `aylik_kota` ve süreçler arası rate limit — `app/limits.py`.
+  Redis Lua ile atomik; saat `TIME`'dan okunur (yerel saat değil), kota UTC
+  takvim ayıdır, anahtarlar hash-tag'li (Cluster'da aynı slot). Redis'e
+  erişilemezse **tool başlatılmaz**: yerel sayaca düşmek limitleri sessizce
+  worker sayısı kadar çoğaltırdı. `worker.runner()` içinden bağlanır.
+  Sayaçlar `redisdata` volume'ünde AOF ile kalıcı.
 
 ### Hafta 6 — AI katmanı
 
@@ -350,12 +377,13 @@ süre). Ön eleme oturmadan bu haftaya geçilmez.
 
 ### Bilinen açıklar
 
-- `aylik_kota` uygulanmadı (alan var, kod yok)
-- Rate limit **süreç içi** — `celery --concurrency=N` ile birden fazla worker
-  process'i olursa limit N katına çıkar. Redis tabanlı sayaca taşınmalı.
 - 27 whois-rdap taşıma hatası araştırılmadı (3 denemeden sonra `failed`)
-- Bulut/CDN filtresi gerçek veriyle sınanmadı
-- Ham çıktı arayüzden görüntülenemiyor
+- Bulut/CDN filtresi gerçek veriyle **kalibre edilmedi**. iana.org turunda
+  yalnızca 3 ASN işaretlendi; Cloudflare/AWS arkasındaki bir hedefle
+  tekrarlanmalı. Ön eleme eşikleri de (`docs/on-eleme.md`) tek hedefe dayanıyor.
+- Redis düşerse tool çalışmaz (bilinçli: sessiz limit aşımından iyidir), ama
+  bu, Redis'i tur için tek hata noktası yapar
+- Arşivden silinmiş ham dosyalar geri getirilemez; görüntüleyici 404 gösterir.
 
 ---
 
@@ -432,11 +460,17 @@ Veritabanı `osint-data` internal ağındadır; hepsini tek komutla koşmak
 **mümkün değildir**.
 
 ```bash
-python -m pytest tests/ -m "not slow" --ignore=tests/test_ingest.py --ignore=tests/test_e2e.py
+python -m pytest tests/ -m "not slow" --ignore=tests/test_ingest.py --ignore=tests/test_e2e.py --ignore=tests/test_triage_db.py --ignore=tests/test_relationships_db.py --ignore=tests/test_report_db.py
 ```
 
 ```bash
 docker compose run --rm --no-deps api python -m pytest tests/test_ingest.py -q
+```
+
+Ön eleme ve ilişki görünümünün PostgreSQL/HTTP testleri:
+
+```bash
+docker compose exec -T api python -m pytest tests/test_triage_db.py tests/test_relationships_db.py tests/test_report_db.py tests/test_raw_output.py -q
 ```
 
 ```bash

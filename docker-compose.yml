@@ -28,6 +28,10 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    # Aylık sayaçlar container yeniden oluşturulduğunda da korunur.
+    command: redis-server --appendonly yes --appendfsync always
+    volumes:
+      - redisdata:/data
     networks: [data]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -123,3 +127,4 @@ networks:
 
 volumes:
   pgdata:
+  redisdata:

@@ -11,6 +11,43 @@
   <tr><th>Nitelikler</th><td class="kucuk">{{ entity.nitelikler }}</td></tr>
 </table>
 
+<section id="iliskiler" aria-labelledby="iliski-baslik">
+<h2 id="iliski-baslik">İlişkili varlıklar ({{ iliskiler.toplam }} ilişki)</h2>
+<p class="kucuk">Her satır kaynak → hedef yönünde okunur. Giden: bu varlık kaynak;
+  gelen: bu varlık hedef. Aynı komşuyla farklı ilişkiler ayrı satırlarda gösterilir.</p>
+{% if iliskiler.toplam %}
+<div class="tablo-kapsayici">
+<table>
+  <thead><tr><th scope="col">Yön</th><th scope="col">Kaynak</th><th scope="col">İlişki →</th>
+    <th scope="col">Hedef</th><th scope="col">İlk görülme</th><th scope="col">Son görülme</th></tr></thead>
+  <tbody>
+  {% for il, kaynak, hedef in iliskiler.satirlar %}
+  <tr>
+    <td>{{ 'Giden →' if kaynak.id == entity.id else 'Gelen ←' }}</td>
+    <td><span class="kucuk">{{ kaynak.tip }}</span><br>
+      {% if kaynak.id == entity.id %}<strong>{{ kaynak.deger_ham }}</strong> <span class="kucuk">(bu varlık)</span>
+      {% else %}<a href="/entities/{{ kaynak.id }}">{{ kaynak.deger_ham }}</a>{% endif %}</td>
+    <td>{{ iliski_adlari.get(il.tip, il.tip) }}<br><code class="kucuk">{{ il.tip }}</code></td>
+    <td><span class="kucuk">{{ hedef.tip }}</span><br>
+      {% if hedef.id == entity.id %}<strong>{{ hedef.deger_ham }}</strong> <span class="kucuk">(bu varlık)</span>
+      {% else %}<a href="/entities/{{ hedef.id }}">{{ hedef.deger_ham }}</a>{% endif %}</td>
+    <td class="kucuk">{{ il.ilk_gorulme.strftime('%Y-%m-%d %H:%M') }}</td>
+    <td class="kucuk">{{ il.son_gorulme.strftime('%Y-%m-%d %H:%M') }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<nav aria-label="İlişki sayfaları">
+  {% if iliskiler.sayfa > 1 %}<a href="?iliski_sayfa={{ iliskiler.sayfa - 1 }}#iliskiler">← Önceki</a>{% endif %}
+  <span>Sayfa {{ iliskiler.sayfa }} / {{ iliskiler.sayfa_sayisi }}</span>
+  {% if iliskiler.sayfa < iliskiler.sayfa_sayisi %}<a href="?iliski_sayfa={{ iliskiler.sayfa + 1 }}#iliskiler">Sonraki →</a>{% endif %}
+</nav>
+{% else %}
+<p class="kucuk">Bu varlık için henüz ilişki kaydı yok. Gözlemler aşağıdaki kanıt zincirinde gösterilir.</p>
+{% endif %}
+</section>
+
 <h2>Kanıt zinciri</h2>
 <!-- Ilke 2: her bulgu ham ciktisina kadar izlenebilir. -->
 <table>
@@ -22,7 +59,7 @@
     <td class="kucuk">{{ o.tool_version }}</td>
     <td>{{ o.guven }}</td>
     <td class="kucuk">{{ o.zaman.strftime("%Y-%m-%d %H:%M:%S") }}</td>
-    <td class="kucuk">{{ o.ham_cikti_ref }}</td>
+    <td class="kucuk"><a href="/observations/{{ o.id }}/raw">ham çıktıyı gör</a><br>{{ o.ham_cikti_ref }}</td>
     <td class="kucuk">{{ o.ham_cikti_yol or "—" }}</td>
     <td class="kucuk">{{ o.veri }}</td>
   </tr>

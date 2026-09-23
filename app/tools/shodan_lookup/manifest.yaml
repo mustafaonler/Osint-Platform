@@ -23,8 +23,7 @@ limitler:
   timeout_sn: 30
   # Ucretsiz katman 1 istek/saniye.
   dakikalik_istek: 60
-  # HENUZ UYGULANMADI (paylasilan sayac gerekir). Deger dursun ki
-  # uygulandiginda yeri hazir olsun.
+  # UTC takvim ayi; retry dahil runner denemeleri Redis'te ortak sayilir.
   aylik_kota: 100
 
 # Indeks verisi ESKI OLABILIR: Shodan bir portu alti ay once gormus ve bugun

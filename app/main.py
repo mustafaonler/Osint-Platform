@@ -7,12 +7,13 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
+from typing import Literal
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -22,6 +23,13 @@ from app.models import Observation as ObservationRow
 from app.normalize import NormalizeError, domain_mi, kok_domain, normalize
 from app.normalize import EntityType
 from app.tools._base import ToolRegistry
+from app.triage import GRUPLAR
+from app.triage_query import listele, sayfala
+from app.relationships import ILISKI_ADLARI, komsular
+from app.raw_output import ONIZLEME_BAYT, arsiv_yolu, onizle
+from app.report import markdown_rapor
+
+Grup = Literal["tumu", "oncelikli", "incele", "baglam", "sertifika"]
 
 KOK = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(KOK / "templates"))
@@ -122,7 +130,8 @@ def _arastirma(session: Session, inv_id: uuid.UUID) -> Investigation:
 
 @app.get("/investigations/{inv_id}", response_class=HTMLResponse)
 def arastirma(
-    inv_id: uuid.UUID, request: Request, session: Session = Depends(oturum)
+    inv_id: uuid.UUID, request: Request, session: Session = Depends(oturum),
+    grup: Grup = "tumu", sayfa: int = Query(1, ge=1),
 ):
     inv = _arastirma(session, inv_id)
     return templates.TemplateResponse(
@@ -132,6 +141,8 @@ def arastirma(
             "inv": inv,
             "tools": sorted(registry().hepsi(), key=lambda a: a.spec.name),
             "isler": _isler(session, inv_id),
+            "grup": grup,
+            "sayfa": sayfa,
         },
     )
 
@@ -197,29 +208,20 @@ def _isler(session: Session, inv_id: uuid.UUID) -> list[Job]:
 
 @app.get("/investigations/{inv_id}/entities", response_class=HTMLResponse)
 def varliklar(
-    inv_id: uuid.UUID, request: Request, session: Session = Depends(oturum)
+    inv_id: uuid.UUID, request: Request, session: Session = Depends(oturum),
+    grup: Grup = "tumu", sayfa: int = Query(1, ge=1),
 ):
     """HTMX ile 2 saniyede bir yenilenen tablo — sonuçlar canlı dolar."""
-    _arastirma(session, inv_id)
-
-    # Her varlığın hangi tool'lardan geldiği: İlke 2'nin liste görünümündeki hâli.
-    satirlar = session.execute(
-        select(
-            Entity,
-            func.string_agg(func.distinct(ObservationRow.tool), ", ").label("tools"),
-        )
-        .outerjoin(ObservationRow, ObservationRow.entity_id == Entity.id)
-        .where(Entity.investigation_id == inv_id)
-        .group_by(Entity.id)
-        .order_by(desc(Entity.gozlem_sayisi), Entity.deger_norm)
-    ).all()
+    inv = _arastirma(session, inv_id)
+    gorunum = sayfala(listele(session, inv_id, inv.kok_hedef), grup, sayfa)
 
     return templates.TemplateResponse(
         request,
         "_entities.html",
         {
             "inv_id": inv_id,
-            "satirlar": satirlar,
+            **gorunum,
+            "gruplar": GRUPLAR,
             "isler": _isler(session, inv_id),
         },
     )
@@ -227,7 +229,8 @@ def varliklar(
 
 @app.get("/entities/{entity_id}", response_class=HTMLResponse)
 def varlik(
-    entity_id: uuid.UUID, request: Request, session: Session = Depends(oturum)
+    entity_id: uuid.UUID, request: Request, session: Session = Depends(oturum),
+    iliski_sayfa: int = Query(1, ge=1),
 ):
     """Varlığın kanıt zinciri: hangi tool, ne zaman, hangi ham çıktının neresinde."""
     entity = session.get(Entity, entity_id)
@@ -249,6 +252,8 @@ def varlik(
             "entity": entity,
             "gozlemler": gozlemler,
             "inv": session.get(Investigation, entity.investigation_id),
+            "iliskiler": komsular(session, entity, iliski_sayfa),
+            "iliski_adlari": ILISKI_ADLARI,
         },
     )
 
@@ -256,3 +261,36 @@ def varlik(
 @app.get("/saglik")
 def saglik():
     return {"durum": "ok", "tool_sayisi": len(registry())}
+
+
+@app.get("/observations/{observation_id}/raw", response_class=HTMLResponse)
+def ham_cikti(
+    observation_id: uuid.UUID, request: Request,
+    indir: bool = False, session: Session = Depends(oturum),
+):
+    gozlem = session.scalar(
+        select(ObservationRow).join(Entity, Entity.id == ObservationRow.entity_id)
+        .join(Job, Job.id == ObservationRow.job_id)
+        .where(ObservationRow.id == observation_id,
+               Job.investigation_id == Entity.investigation_id)
+    )
+    if gozlem is None:
+        raise HTTPException(404, "Gözlem bulunamadı")
+    yol = arsiv_yolu(gozlem)
+    headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"}
+    if indir:
+        return FileResponse(yol, media_type="application/octet-stream",
+                            filename=f"{gozlem.job_id}-{yol.name}", headers=headers)
+    icerik, kirpildi = onizle(yol)
+    return templates.TemplateResponse(request, "raw.html", {
+        "gozlem": gozlem, "icerik": icerik, "kirpildi": kirpildi,
+        "limit_kib": ONIZLEME_BAYT // 1024,
+    }, headers=headers)
+
+
+@app.get("/investigations/{inv_id}/report.md")
+def rapor(inv_id: uuid.UUID, session: Session = Depends(oturum)):
+    inv = _arastirma(session, inv_id)
+    return Response(markdown_rapor(session, inv), media_type="text/markdown; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="osint-{inv.id}.md"',
+                             "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})

@@ -9,6 +9,7 @@
 </p>
 
 <h2>Tool çalıştır</h2>
+<p><a href="/investigations/{{ inv.id }}/report.md">Markdown raporunu indir</a></p>
 <form method="post" action="/investigations/{{ inv.id }}/run">
   {% for t in tools %}
   <label>
@@ -24,9 +25,9 @@
   <button type="submit">Kuyruğa at</button>
 </form>
 
-<div hx-get="/investigations/{{ inv.id }}/entities"
-     hx-trigger="load, every 2s"
-     hx-swap="innerHTML">
+<div hx-get="/investigations/{{ inv.id }}/entities?grup={{ grup }}&amp;sayfa={{ sayfa }}"
+     hx-trigger="load"
+     hx-swap="outerHTML">
   <p class="kucuk">yükleniyor…</p>
 </div>
 {% endblock %}
