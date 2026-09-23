@@ -362,7 +362,7 @@ Graph görselleştirme **v1'de YOK** (bkz. Bölüm 9).
   worker sayısı kadar çoğaltırdı. `worker.runner()` içinden bağlanır.
   Sayaçlar `redisdata` volume'ünde AOF ile kalıcı.
 
-### Hafta 6 — AI katmanı (KOD TAMAM, CANLI ÇALIŞTIRILMADI)
+### Hafta 6 — AI katmanı (TAMAMLANDI, CANLI ÇALIŞTIRILDI)
 
 | Dosya | İçerik |
 |---|---|
@@ -404,15 +404,48 @@ Skor **sıralamayı değiştirmez**, tabloya yalnızca bir sütun ekler.
 (16, `MockTransport` — ağa çıkmaz), `tests/test_ai_skorla_db.py` (15, gerçek
 PostgreSQL).
 
-**YAPILMADI:** `GEMINI_API_KEY` boş olduğu için **canlı model hiç çağrılmadı.**
-Anahtar girilip bir tur koşulması gerekiyor; asıl sürpriz orada çıkar
-(gerçek yanıt biçimi, gerçek gecikme, gerçek kota). Rapor taslağı üretimi
-(kapsam.md 3.5 madde 3) de yazılmadı — rapor şu an şablondan üretiliyor.
+**CANLI ÖLÇÜM — 23 Eylül 2026, `hafta4-olcum` (iana.org, 580 varlık):**
+
+| Ölçüt | Sonuç |
+|---|---|
+| Skorlanan | **383** (sertifikalar hariç, 4 yığın) |
+| Hipotez | 16, her biri 12-26 varlığa dayalı, hepsi `beklemede` |
+| **Halüsinasyon** | **0** |
+| Sözleşme ihlali | 0 — model her yığında tam liste döndürdü |
+| Süre | 222 sn (yığın başına ~55 sn) |
+| Anahtar sızıntısı | log, DB, ham arşiv: **hiçbirinde yok** (arandı) |
+
+En üst skorlar analistin gerçekten önce bakacağı şeyler çıktı:
+`svn.iana.org`, `staging.iana.org`, `jenkins.blackhole-1.iana.org`,
+`k8s.blackhole-1.iana.org`. Yani skorlama yalnızca çalışmıyor, **işe yarıyor**.
+
+**Skor şişmesi — düzeltilmesi gereken açık.** Dağılım üst yarıya sıkışmış:
+
+| Aralık | Varlık | % |
+|---|---|---|
+| 90-100 | 106 | 27,7 |
+| 80-89 | 32 | 8,4 |
+| 70-79 | 41 | 10,7 |
+| 50-69 | 167 | 43,6 |
+| 30-49 | 37 | 9,7 |
+| 0-29 | 0 | 0 |
+
+383 varlığın 106'sı "90+" ise bu bir önceliklendirme değildir. Alt bant hiç
+kullanılmamış (sertifikalar gönderilmediği için 0-19 bandı boş kaldı).
+Prompt'taki rubrik (`SISTEM`) yeniden kalibre edilmeli: bantlara varlık
+yüzdesi hedefi eklemek veya modelden yığın içinde **sıralama** istemek
+(mutlak skor yerine göreli) muhtemel çözümler. Bu prompt değişikliği
+`PROMPT_VERSIYON`'u yükseltir ve tüm varlıklar yeniden skorlanır.
+
+**YAPILMADI:** Rapor taslağı üretimi (kapsam.md 3.5 madde 3) — rapor şu an
+şablondan üretiliyor, modele yazdırılmıyor.
 
 ### Hafta 7 — toparlama, sunum
 
 ### Bilinen açıklar
 
+- **AI skor şişmesi:** varlıkların %27,7'si 90-100 bandında, alt bant boş.
+  Prompt rubriği kalibre edilmeli (yukarıda Hafta 6).
 - 27 whois-rdap taşıma hatası araştırılmadı (3 denemeden sonra `failed`)
 - Bulut/CDN filtresi gerçek veriyle **kalibre edilmedi**. iana.org turunda
   yalnızca 3 ASN işaretlendi; Cloudflare/AWS arkasındaki bir hedefle
